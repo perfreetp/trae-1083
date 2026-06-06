@@ -14,6 +14,12 @@ import {
   UserPlus,
   Send,
   FileText,
+  MessageSquare,
+  Stethoscope,
+  Wrench,
+  Package,
+  Plus as PlusIcon,
+  X,
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Modal from "@/components/ui/Modal";
@@ -74,6 +80,9 @@ export default function Tickets() {
     addTicket,
     updateTicket,
     setDeviceStatus,
+    repairLogEntries,
+    addRepairLogEntry,
+    spareParts,
   } = useStore();
   const [viewMode, setViewMode] = useState<"board" | "list">("board");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -89,6 +98,12 @@ export default function Tickets() {
     trackingNumber: "",
     cost: 0,
   });
+  const [newLogType, setNewLogType] = useState<"diagnosis" | "action" | "parts" | "note">("diagnosis");
+  const [newLogContent, setNewLogContent] = useState("");
+  const [newLogTechnician, setNewLogTechnician] = useState("");
+  const [newLogSparePartId, setNewLogSparePartId] = useState("");
+  const [newLogSparePartQty, setNewLogSparePartQty] = useState(1);
+  const [resolutionText, setResolutionText] = useState("");
 
   const handleCreateSubmit = () => {
     if (!formData.deviceId || !formData.title || !formData.reporter) {
@@ -166,6 +181,54 @@ export default function Tickets() {
       cost: ticket.externalRepair?.cost || 0,
     });
     setIsExternalModalOpen(true);
+  };
+
+  const handleAddRepairLog = () => {
+    if (!selectedTicket || !newLogContent || !newLogTechnician) {
+      alert("请填写处理内容和处理人");
+      return;
+    }
+    addRepairLogEntry({
+      ticketId: selectedTicket.id,
+      type: newLogType,
+      content: newLogContent,
+      sparePartId: newLogType === "parts" ? newLogSparePartId : undefined,
+      sparePartQuantity: newLogType === "parts" ? newLogSparePartQty : undefined,
+      technician: newLogTechnician,
+      createdAt: new Date().toISOString(),
+    });
+    setNewLogContent("");
+    setNewLogTechnician("");
+    setNewLogSparePartId("");
+    setNewLogSparePartQty(1);
+  };
+
+  const handleCloseTicket = () => {
+    if (!selectedTicket) return;
+    if (!selectedTicket.resolution && !resolutionText) {
+      alert("关闭工单前必须填写处理结论");
+      return;
+    }
+    updateTicket(selectedTicket.id, {
+      status: "closed",
+      resolution: resolutionText || selectedTicket.resolution,
+    });
+    setResolutionText("");
+    setIsDetailModalOpen(false);
+    setSelectedTicket(null);
+  };
+
+  const handleResolveTicket = () => {
+    if (!selectedTicket) return;
+    if (!resolutionText && !selectedTicket.resolution) {
+      alert("解决工单前请填写处理结论");
+      return;
+    }
+    updateTicket(selectedTicket.id, {
+      status: "resolved",
+      resolution: resolutionText || selectedTicket.resolution,
+    });
+    setResolutionText("");
   };
 
   const renderTicketCard = (ticket: TicketType) => {
@@ -773,6 +836,180 @@ export default function Tickets() {
                 </div>
               </div>
             )}
+
+            <div className="border-t border-gray-100 pt-5">
+              <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-primary-500" />
+                维修日志
+              </h4>
+
+              <div className="space-y-3 mb-4">
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  {[
+                    { type: "diagnosis", label: "诊断", icon: Stethoscope, color: "blue" },
+                    { type: "action", label: "处理", icon: Wrench, color: "green" },
+                    { type: "parts", label: "换件", icon: Package, color: "orange" },
+                    { type: "note", label: "备注", icon: FileText, color: "gray" },
+                  ].map((item) => (
+                    <button
+                      key={item.type}
+                      type="button"
+                      onClick={() => setNewLogType(item.type as any)}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1 transition-colors ${
+                        newLogType === item.type
+                          ? "bg-primary-100 text-primary-700"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                      }`}
+                    >
+                      <item.icon className="w-4 h-4" />
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    value={newLogTechnician}
+                    onChange={(e) => setNewLogTechnician(e.target.value)}
+                    placeholder="处理人姓名"
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  {newLogType === "parts" && (
+                    <>
+                      <select
+                        value={newLogSparePartId}
+                        onChange={(e) => setNewLogSparePartId(e.target.value)}
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="">选择备件</option>
+                        {spareParts.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} (库存: {p.stock})
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="1"
+                        value={newLogSparePartQty}
+                        onChange={(e) => setNewLogSparePartQty(Number(e.target.value))}
+                        placeholder="数量"
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    </>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <textarea
+                    value={newLogContent}
+                    onChange={(e) => setNewLogContent(e.target.value)}
+                    placeholder="请输入处理内容..."
+                    rows={2}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                  />
+                  <button
+                    onClick={handleAddRepairLog}
+                    className="px-4 py-2 bg-primary-500 text-white rounded-lg text-sm hover:bg-primary-600 transition-colors flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <PlusIcon className="w-4 h-4" />
+                    添加
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
+                {repairLogEntries
+                  .filter((e) => e.ticketId === selectedTicket.id)
+                  .length === 0 ? (
+                  <div className="text-center py-6 text-gray-400 text-sm">
+                    暂无维修日志
+                  </div>
+                ) : (
+                  repairLogEntries
+                    .filter((e) => e.ticketId === selectedTicket.id)
+                    .map((entry) => {
+                      const typeConfig = {
+                        diagnosis: { icon: Stethoscope, label: "诊断", color: "bg-blue-100 text-blue-700" },
+                        action: { icon: Wrench, label: "处理", color: "bg-green-100 text-green-700" },
+                        parts: { icon: Package, label: "换件", color: "bg-orange-100 text-orange-700" },
+                        note: { icon: FileText, label: "备注", color: "bg-gray-100 text-gray-700" },
+                      };
+                      const config = typeConfig[entry.type];
+                      const Icon = config.icon;
+                      const part = entry.sparePartId
+                        ? spareParts.find((p) => p.id === entry.sparePartId)
+                        : null;
+                      return (
+                        <div
+                          key={entry.id}
+                          className="p-3 bg-gray-50 rounded-lg"
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+                            >
+                              <Icon className="w-3 h-3 mr-1" />
+                              {config.label}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {new Date(entry.createdAt).toLocaleString("zh-CN")}
+                            </span>
+                            <span className="text-xs text-gray-500 ml-auto">
+                              {entry.technician}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700">
+                            {entry.content}
+                          </p>
+                          {part && (
+                            <p className="text-xs text-orange-600 mt-1">
+                              更换备件: {part.name} x{entry.sparePartQuantity}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100 pt-5">
+              <h4 className="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-500" />
+                处理结论
+              </h4>
+              <textarea
+                value={resolutionText || selectedTicket.resolution || ""}
+                onChange={(e) => setResolutionText(e.target.value)}
+                placeholder="请填写处理结论，关闭工单前必填..."
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+              {selectedTicket.status !== "resolved" &&
+                selectedTicket.status !== "closed" && (
+                  <button
+                    onClick={handleResolveTicket}
+                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium flex items-center gap-2"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    标记解决
+                  </button>
+                )}
+              {selectedTicket.status !== "closed" && (
+                <button
+                  onClick={handleCloseTicket}
+                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  关闭工单
+                </button>
+              )}
+            </div>
           </div>
         )}
       </Modal>

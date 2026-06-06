@@ -13,10 +13,23 @@ import {
   Calendar,
   FileText,
   AlertTriangle,
+  Clock,
+  Wrench,
+  AlertCircle,
+  PlaneTakeoff,
+  Package,
+  ClipboardList,
+  CheckCircle2,
+  XCircle,
+  ArrowRightLeft,
+  Download,
+  Upload,
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Modal from "@/components/ui/Modal";
+import ImportModal from "@/components/ImportModal";
 import { useStore } from "@/store/useStore";
+import { exportToCSV } from "@/utils/csv";
 import type { DeviceType, Device, DeviceStatus } from "@/types";
 
 const typeIcons: Record<DeviceType, typeof Cpu> = {
@@ -55,16 +68,74 @@ const emptyDevice: Omit<Device, "id"> = {
 };
 
 export default function Devices() {
-  const { devices, addDevice, updateDevice, stockTakes } = useStore();
+  const {
+    devices,
+    addDevice,
+    updateDevice,
+    stockTakes,
+    flightRecords,
+    maintenanceTasks,
+    tickets,
+    inventoryTransactions,
+    spareParts,
+  } = useStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<DeviceType | "all">("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [formData, setFormData] = useState<Omit<Device, "id">>(emptyDevice);
+
+  const handleExportDevices = () => {
+    const headers = [
+      { key: "name", label: "设备名称" },
+      { key: "type", label: "设备类型" },
+      { key: "model", label: "型号" },
+      { key: "serialNumber", label: "序列号" },
+      { key: "assetNumber", label: "资产编号" },
+      { key: "purchaseDate", label: "采购日期" },
+      { key: "purchasePrice", label: "采购价格" },
+      { key: "status", label: "状态" },
+      { key: "responsiblePerson", label: "责任人" },
+      { key: "totalFlightHours", label: "累计飞行小时" },
+      { key: "insuranceExpiry", label: "保险到期日" },
+    ];
+    const exportData = devices.map((d) => ({
+      ...d,
+      type: typeLabels[d.type],
+      status: statusOptions.find((s) => s.value === d.status)?.label || d.status,
+    }));
+    exportToCSV(exportData, "设备档案", headers);
+  };
+
+  const handleImportDevices = (data: Record<string, any>[]) => {
+    data.forEach((row) => {
+      const typeKey = Object.keys(typeLabels).find(
+        (k) => typeLabels[k as DeviceType] === row["设备类型"]
+      ) as DeviceType;
+      const statusKey = statusOptions.find((s) => s.label === row["状态"])?.value as DeviceStatus;
+      
+      addDevice({
+        name: row["设备名称"] || row.name || "",
+        type: typeKey || "aircraft",
+        model: row["型号"] || row.model || "",
+        serialNumber: row["序列号"] || row.serialNumber || "",
+        assetNumber: row["资产编号"] || row.assetNumber || "",
+        purchaseDate: row["采购日期"] || row.purchaseDate || "",
+        purchasePrice: Number(row["采购价格"] || row.purchasePrice || 0),
+        status: statusKey || "active",
+        responsiblePerson: row["责任人"] || row.responsiblePerson || "",
+        totalFlightHours: Number(row["累计飞行小时"] || row.totalFlightHours || 0),
+        insuranceExpiry: row["保险到期日"] || row.insuranceExpiry || "",
+        lastMaintenanceDate: row["上次维保日期"] || row.lastMaintenanceDate || "",
+        nextMaintenanceDate: row["下次维保日期"] || row.nextMaintenanceDate || "",
+      });
+    });
+  };
 
   const filteredDevices = devices.filter((device) => {
     const matchesSearch =
@@ -386,16 +457,32 @@ export default function Devices() {
             </select>
           </div>
         </div>
-        <button
-          onClick={() => {
-            setFormData(emptyDevice);
-            setIsAddModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
-        >
-          <Plus className="w-5 h-5" />
-          新增设备
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleExportDevices}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <Download className="w-5 h-5" />
+            导出
+          </button>
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <Upload className="w-5 h-5" />
+            导入
+          </button>
+          <button
+            onClick={() => {
+              setFormData(emptyDevice);
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            新增设备
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -728,6 +815,174 @@ export default function Devices() {
               </div>
             )}
 
+            <div className="border-t border-gray-100 pt-6">
+              <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-primary-500" />
+                资产履历
+              </h4>
+              <div className="relative pl-6 space-y-4 max-h-96 overflow-y-auto pr-2">
+                <div className="absolute left-2 top-1 bottom-1 w-0.5 bg-gray-200" />
+                {(() => {
+                  const events: Array<{
+                    date: string;
+                    type: string;
+                    icon: any;
+                    color: string;
+                    title: string;
+                    description?: string;
+                  }> = [];
+
+                  events.push({
+                    date: selectedDevice.purchaseDate,
+                    type: "purchase",
+                    icon: Package,
+                    color: "bg-blue-500",
+                    title: "设备入库",
+                    description: `采购价格: ¥${selectedDevice.purchasePrice.toLocaleString()}`,
+                  });
+
+                  flightRecords
+                    .filter((fr) => fr.deviceId === selectedDevice.id)
+                    .forEach((fr) => {
+                      events.push({
+                        date: fr.date,
+                        type: "flight",
+                        icon: PlaneTakeoff,
+                        color: "bg-green-500",
+                        title: `飞行记录: ${fr.missionType}`,
+                        description: `时长: ${fr.duration}h · 飞手: ${fr.pilot} · 地点: ${fr.location}`,
+                      });
+                    });
+
+                  maintenanceTasks
+                    .filter((t) => t.deviceId === selectedDevice.id)
+                    .forEach((t) => {
+                      if (t.status === "completed") {
+                        events.push({
+                          date: t.completedDate || t.dueDate,
+                          type: "maintenance",
+                          icon: Wrench,
+                          color: "bg-purple-500",
+                          title: `维保完成: ${t.type}`,
+                          description: t.cost
+                            ? `费用: ¥${t.cost.toLocaleString()}`
+                            : t.notes,
+                        });
+                      } else {
+                        events.push({
+                          date: t.dueDate,
+                          type: "maintenance",
+                          icon: Wrench,
+                          color: "bg-yellow-500",
+                          title: `维保计划: ${t.type}`,
+                          description: `状态: ${t.status === "overdue" ? "已逾期" : t.status === "in_progress" ? "处理中" : "待处理"}`,
+                        });
+                      }
+                    });
+
+                  tickets
+                    .filter((t) => t.deviceId === selectedDevice.id)
+                    .forEach((t) => {
+                      if (t.isGround) {
+                        events.push({
+                          date: t.createdAt,
+                          type: "ground",
+                          icon: XCircle,
+                          color: "bg-red-500",
+                          title: `故障停飞: ${t.title}`,
+                          description: `优先级: ${t.priority} · 上报人: ${t.reporter}`,
+                        });
+                      }
+                      if (t.status === "resolved" || t.status === "closed") {
+                        events.push({
+                          date: t.createdAt,
+                          type: "resolve",
+                          icon: CheckCircle2,
+                          color: "bg-green-500",
+                          title: `故障修复: ${t.title}`,
+                          description: t.externalRepair
+                            ? `外修费用: ¥${t.externalRepair.cost?.toLocaleString() || 0}`
+                            : undefined,
+                        });
+                      }
+                    });
+
+                  inventoryTransactions
+                    .filter(
+                      (tx) =>
+                        tx.deviceId === selectedDevice.id && tx.type === "out"
+                    )
+                    .forEach((tx) => {
+                      const part = spareParts.find(
+                        (p) => p.id === tx.sparePartId
+                      );
+                      events.push({
+                        date: tx.date,
+                        type: "spare",
+                        icon: Package,
+                        color: "bg-orange-500",
+                        title: `备件领用: ${part?.name || "未知备件"}`,
+                        description: `数量: ${tx.quantity}${part?.unit || ""} · 经办人: ${tx.operator}`,
+                      });
+                    });
+
+                  stockTakes
+                    .filter((st) => st.status === "completed")
+                    .forEach((st) => {
+                      const item = st.items.find(
+                        (i) => i.deviceId === selectedDevice.id
+                      );
+                      if (item) {
+                        events.push({
+                          date: st.completedAt || st.createdAt,
+                          type: "stocktake",
+                          icon: ClipboardList,
+                          color:
+                            item.status === "normal"
+                              ? "bg-green-500"
+                              : item.status === "damaged"
+                              ? "bg-orange-500"
+                              : "bg-red-500",
+                          title: `资产盘点: ${st.title}`,
+                          description: `结果: ${item.status === "normal" ? "正常" : item.status === "damaged" ? "损坏" : "缺失"}${item.notes ? ` · ${item.notes}` : ""}`,
+                        });
+                      }
+                    });
+
+                  return events
+                    .sort(
+                      (a, b) =>
+                        new Date(b.date).getTime() - new Date(a.date).getTime()
+                    )
+                    .map((event, idx) => {
+                      const Icon = event.icon;
+                      return (
+                        <div key={idx} className="relative">
+                          <div
+                            className={`absolute -left-6 top-0.5 w-4 h-4 rounded-full ${event.color} border-2 border-white shadow`}
+                          />
+                          <div className="ml-2">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium text-gray-800">
+                                {event.title}
+                              </p>
+                              <span className="text-xs text-gray-400">
+                                {event.date}
+                              </span>
+                            </div>
+                            {event.description && (
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {event.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    });
+                })()}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
               <button
                 onClick={() => {
@@ -743,6 +998,30 @@ export default function Devices() {
           </div>
         )}
       </Modal>
+
+      <ImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        title="批量导入设备"
+        keyField="资产编号"
+        keyFieldLabel="资产编号"
+        existingItems={devices}
+        existingKeyField="assetNumber"
+        sampleHeaders={[
+          "设备名称",
+          "设备类型",
+          "型号",
+          "序列号",
+          "资产编号",
+          "采购日期",
+          "采购价格",
+          "状态",
+          "责任人",
+          "累计飞行小时",
+          "保险到期日",
+        ]}
+        onImport={handleImportDevices}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Plus,
   Calendar,
@@ -10,6 +10,9 @@ import {
   Eye,
   DollarSign,
   FileText,
+  Settings,
+  RefreshCw,
+  Save,
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Modal from "@/components/ui/Modal";
@@ -43,14 +46,26 @@ export default function Maintenance() {
     devices,
     addMaintenanceTask,
     updateMaintenanceTask,
+    refreshOverdueTasks,
+    checkAndGenerateCycleMaintenance,
+    updateDevice,
   } = useStore();
+
+  useEffect(() => {
+    refreshOverdueTasks();
+    checkAndGenerateCycleMaintenance();
+  }, [refreshOverdueTasks, checkAndGenerateCycleMaintenance]);
   const [filterStatus, setFilterStatus] = useState<MaintenanceStatus | "all">(
     "all"
   );
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isProcessModalOpen, setIsProcessModalOpen] = useState(false);
+  const [isCycleRuleModalOpen, setIsCycleRuleModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<MaintenanceTask | null>(null);
+  const [cycleRuleDeviceId, setCycleRuleDeviceId] = useState("");
+  const [cycleRuleType, setCycleRuleType] = useState<"flight_hours" | "date">("date");
+  const [cycleRuleInterval, setCycleRuleInterval] = useState(30);
   const [formData, setFormData] = useState<Omit<MaintenanceTask, "id">>(
     emptyTask
   );
@@ -117,6 +132,37 @@ export default function Maintenance() {
     setIsViewModalOpen(true);
   };
 
+  const handleSaveCycleRule = () => {
+    if (!cycleRuleDeviceId) {
+      alert("请选择设备");
+      return;
+    }
+    const device = devices.find((d) => d.id === cycleRuleDeviceId);
+    if (!device) return;
+
+    const existingRules = device.maintenanceCycleRules || [];
+    const unit: "hours" | "days" = cycleRuleType === "flight_hours" ? "hours" : "days";
+    const newRule = {
+      type: cycleRuleType,
+      interval: cycleRuleInterval,
+      unit,
+      lastTriggeredAt: new Date().toISOString().split("T")[0],
+      lastFlightHours:
+        cycleRuleType === "flight_hours" ? device.totalFlightHours : undefined,
+    };
+
+    updateDevice(cycleRuleDeviceId, {
+      maintenanceCycleRules: [...existingRules, newRule],
+    });
+
+    setIsCycleRuleModalOpen(false);
+    setCycleRuleDeviceId("");
+    setCycleRuleInterval(30);
+    setCycleRuleType("date");
+    checkAndGenerateCycleMaintenance();
+    alert("周期规则设置成功，已自动检查维保计划");
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -135,16 +181,35 @@ export default function Maintenance() {
             <option value="overdue">已逾期</option>
           </select>
         </div>
-        <button
-          onClick={() => {
-            setFormData(emptyTask);
-            setIsAddModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
-        >
-          <Plus className="w-5 h-5" />
-          新增维保计划
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              checkAndGenerateCycleMaintenance();
+              alert("已检查周期维保规则");
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <RefreshCw className="w-5 h-5" />
+            检查周期
+          </button>
+          <button
+            onClick={() => setIsCycleRuleModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <Settings className="w-5 h-5" />
+            周期规则
+          </button>
+          <button
+            onClick={() => {
+              setFormData(emptyTask);
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            新增维保计划
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -212,15 +277,11 @@ export default function Maintenance() {
           ) : (
             filteredTasks.map((task) => {
               const device = devices.find((d) => d.id === task.deviceId);
-              const isOverdue =
-                new Date(task.dueDate) < new Date() &&
-                task.status !== "completed";
-
               return (
                 <div
                   key={task.id}
                   className={`p-6 hover:bg-gray-50 transition-colors ${
-                    isOverdue ? "bg-red-50/50" : ""
+                    task.status === "overdue" ? "bg-red-50/50" : ""
                   }`}
                 >
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -244,9 +305,10 @@ export default function Maintenance() {
                             {task.type}
                           </h4>
                           <StatusBadge status={task.status} />
-                          {isOverdue && task.status !== "completed" && (
-                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-medium">
-                              已逾期
+                          {task.isAutoGenerated && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              自动生成
                             </span>
                           )}
                         </div>
@@ -631,6 +693,140 @@ export default function Maintenance() {
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={isCycleRuleModalOpen}
+        onClose={() => setIsCycleRuleModalOpen(false)}
+        title="设置维保周期规则"
+        size="md"
+      >
+        <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              选择设备 <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={cycleRuleDeviceId}
+              onChange={(e) => setCycleRuleDeviceId(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">请选择设备</option>
+              {devices.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} ({d.model})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              周期类型 <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setCycleRuleType("date");
+                  setCycleRuleInterval(30);
+                }}
+                className={`px-4 py-3 rounded-lg border-2 transition-all text-sm font-medium ${
+                  cycleRuleType === "date"
+                    ? "border-primary-500 bg-primary-50 text-primary-700"
+                    : "border-gray-200 hover:border-gray-300 text-gray-600"
+                }`}
+              >
+                <Calendar className="w-5 h-5 mx-auto mb-1" />
+                按日期循环
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCycleRuleType("flight_hours");
+                  setCycleRuleInterval(50);
+                }}
+                className={`px-4 py-3 rounded-lg border-2 transition-all text-sm font-medium ${
+                  cycleRuleType === "flight_hours"
+                    ? "border-primary-500 bg-primary-50 text-primary-700"
+                    : "border-gray-200 hover:border-gray-300 text-gray-600"
+                }`}
+              >
+                <Clock className="w-5 h-5 mx-auto mb-1" />
+                按飞行小时
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              间隔{cycleRuleType === "date" ? "（天）" : "（小时）"}{" "}
+              <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={cycleRuleInterval}
+              onChange={(e) =>
+                setCycleRuleInterval(Number(e.target.value))
+              }
+              placeholder={
+                cycleRuleType === "date" ? "如：30 表示每30天" : "如：50 表示每50小时"
+              }
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          {cycleRuleDeviceId && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <h4 className="text-sm font-medium text-blue-800 mb-2">
+                该设备已有规则
+              </h4>
+              <div className="space-y-2">
+                {(() => {
+                  const device = devices.find(
+                    (d) => d.id === cycleRuleDeviceId
+                  );
+                  const rules = device?.maintenanceCycleRules || [];
+                  if (rules.length === 0) {
+                    return (
+                      <p className="text-sm text-blue-600">暂无周期规则</p>
+                    );
+                  }
+                  return rules.map((rule, idx) => (
+                    <div
+                      key={idx}
+                      className="text-sm text-blue-700 flex items-center gap-2"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      {rule.type === "date"
+                        ? `每 ${rule.interval} 天`
+                        : `每 ${rule.interval} 飞行小时`}
+                      {rule.lastTriggeredAt &&
+                        ` · 上次触发: ${rule.lastTriggeredAt}`}
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+          <button
+            onClick={() => setIsCycleRuleModalOpen(false)}
+            className="px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleSaveCycleRule}
+            className="px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium flex items-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            保存规则
+          </button>
+        </div>
       </Modal>
     </div>
   );

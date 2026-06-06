@@ -12,6 +12,9 @@ import type {
   Depreciation,
   InventoryTransaction,
   StockTake,
+  RepairLogEntry,
+  MaintenanceStatus,
+  Budget,
 } from "@/types";
 import {
   mockDevices,
@@ -37,21 +40,29 @@ interface AppState {
   depreciations: Depreciation[];
   inventoryTransactions: InventoryTransaction[];
   stockTakes: StockTake[];
+  repairLogEntries: RepairLogEntry[];
+  budgets: Budget[];
   
   addDevice: (device: Omit<Device, "id">) => void;
   updateDevice: (id: string, device: Partial<Device>) => void;
   addFlightRecord: (record: Omit<FlightRecord, "id">) => void;
   addMaintenanceTask: (task: Omit<MaintenanceTask, "id">) => void;
   updateMaintenanceTask: (id: string, task: Partial<MaintenanceTask>) => void;
+  refreshOverdueTasks: () => void;
   addTicket: (ticket: Omit<Ticket, "id">) => void;
   updateTicket: (id: string, ticket: Partial<Ticket>) => void;
-  updateSparePartStock: (id: string, quantity: number, type: "in" | "out", operator: string, notes?: string) => boolean;
+  updateSparePartStock: (id: string, quantity: number, type: "in" | "out", operator: string, notes?: string, deviceId?: string, ticketId?: string, maintenanceTaskId?: string) => boolean;
   addCostRecord: (record: Omit<CostRecord, "id">) => void;
   setDeviceStatus: (id: string, status: Device["status"]) => void;
   addInventoryTransaction: (tx: Omit<InventoryTransaction, "id">) => void;
   addStockTake: (stockTake: Omit<StockTake, "id">) => void;
   updateStockTake: (id: string, stockTake: Partial<StockTake>) => void;
   addSparePart: (part: Omit<SparePart, "id">) => void;
+  checkAndGenerateCycleMaintenance: () => void;
+  addRepairLogEntry: (entry: Omit<RepairLogEntry, "id">) => void;
+  addBudget: (budget: Omit<Budget, "id" | "createdAt">) => void;
+  updateBudget: (id: string, budget: Partial<Budget>) => void;
+  deleteBudget: (id: string) => void;
 }
 
 const generateId = (prefix: string) =>
@@ -71,6 +82,8 @@ export const useStore = create<AppState>()(
       depreciations: mockDepreciations,
       inventoryTransactions: [],
       stockTakes: [],
+      repairLogEntries: [],
+      budgets: [],
 
       addDevice: (device) =>
         set((state) => ({
@@ -98,12 +111,39 @@ export const useStore = create<AppState>()(
         })),
 
       addMaintenanceTask: (task) =>
-        set((state) => ({
-          maintenanceTasks: [
-            { ...task, id: generateId("maint") },
-            ...state.maintenanceTasks,
-          ],
-        })),
+        set((state) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const dueDate = new Date(task.dueDate);
+          dueDate.setHours(0, 0, 0, 0);
+          const isOverdue = dueDate < today && task.status !== "completed" && task.status !== "in_progress";
+          const status: MaintenanceStatus = isOverdue ? "overdue" : task.status;
+          
+          return {
+            maintenanceTasks: [
+              { ...task, id: generateId("maint"), status },
+              ...state.maintenanceTasks,
+            ],
+          };
+        }),
+
+      refreshOverdueTasks: () =>
+        set((state) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const updatedTasks = state.maintenanceTasks.map((t) => {
+            if (t.status === "completed" || t.status === "in_progress") return t;
+            const dueDate = new Date(t.dueDate);
+            dueDate.setHours(0, 0, 0, 0);
+            const isOverdue = dueDate < today;
+            const status: MaintenanceStatus = isOverdue ? "overdue" : "pending";
+            return {
+              ...t,
+              status,
+            };
+          });
+          return { maintenanceTasks: updatedTasks };
+        }),
 
       updateMaintenanceTask: (id, task) =>
         set((state) => {
@@ -112,6 +152,7 @@ export const useStore = create<AppState>()(
           );
           const updatedTask = updatedTasks.find((t) => t.id === id);
           let newCostRecords = state.costRecords;
+          
           if (
             updatedTask &&
             task.status === "completed" &&
@@ -137,9 +178,18 @@ export const useStore = create<AppState>()(
         }),
 
       addTicket: (ticket) =>
-        set((state) => ({
-          tickets: [{ ...ticket, id: generateId("tk") }, ...state.tickets],
-        })),
+        set((state) => {
+          let newDevices = state.devices;
+          if (ticket.isGround) {
+            newDevices = state.devices.map((d) =>
+              d.id === ticket.deviceId ? { ...d, status: "grounded" } : d
+            );
+          }
+          return {
+            tickets: [{ ...ticket, id: generateId("tk") }, ...state.tickets],
+            devices: newDevices,
+          };
+        }),
 
       updateTicket: (id, ticket) =>
         set((state) => {
@@ -203,7 +253,7 @@ export const useStore = create<AppState>()(
           };
         }),
 
-      updateSparePartStock: (id, quantity, type, operator, notes?) => {
+      updateSparePartStock: (id, quantity, type, operator, notes?, deviceId?, ticketId?, maintenanceTaskId?) => {
         let success = false;
         set((state) => {
           const part = state.spareParts.find((p) => p.id === id);
@@ -227,10 +277,16 @@ export const useStore = create<AppState>()(
             date: new Date().toISOString().split("T")[0],
             operator,
             notes,
+            deviceId,
+            ticketId,
+            maintenanceTaskId,
           };
 
           let newCostRecords = state.costRecords;
           if (type === "out") {
+            const maintenanceTask = maintenanceTaskId
+              ? state.maintenanceTasks.find((t) => t.id === maintenanceTaskId)
+              : null;
             newCostRecords = [
               {
                 id: generateId("cost"),
@@ -238,7 +294,11 @@ export const useStore = create<AppState>()(
                 amount: part.unitPrice * quantity,
                 date: new Date().toISOString().split("T")[0],
                 description: `备件领用: ${part.name} x${quantity}`,
-                deviceId: "",
+                deviceId: deviceId || "",
+                ticketId,
+                taskId: maintenanceTaskId,
+                taskType: maintenanceTask ? "maintenance" : ticketId ? "repair" : undefined,
+                taskName: maintenanceTask?.type,
               },
               ...state.costRecords,
             ];
@@ -297,6 +357,127 @@ export const useStore = create<AppState>()(
       addSparePart: (part) =>
         set((state) => ({
           spareParts: [...state.spareParts, { ...part, id: generateId("sp") }],
+        })),
+
+      checkAndGenerateCycleMaintenance: () =>
+        set((state) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          let newTasks = [...state.maintenanceTasks];
+          let updatedDevices = [...state.devices];
+
+          state.devices.forEach((device) => {
+            if (!device.maintenanceCycleRules) return;
+
+            device.maintenanceCycleRules.forEach((rule, ruleIdx) => {
+              let shouldGenerate = false;
+              let dueDate = "";
+              let description = "";
+
+              if (rule.type === "flight_hours") {
+                const lastHours = rule.lastFlightHours || 0;
+                const currentHours = device.totalFlightHours;
+                if (currentHours - lastHours >= rule.interval) {
+                  shouldGenerate = true;
+                  dueDate = new Date().toISOString().split("T")[0];
+                  description = `按飞行小时周期保养: 累计 ${currentHours.toFixed(0)} 小时，距上次保养已飞行 ${(currentHours - lastHours).toFixed(0)} 小时`;
+                }
+              } else if (rule.type === "date") {
+                const lastDate = rule.lastTriggeredAt
+                  ? new Date(rule.lastTriggeredAt)
+                  : new Date(device.purchaseDate);
+                const nextDate = new Date(lastDate);
+                nextDate.setDate(nextDate.getDate() + rule.interval);
+                nextDate.setHours(0, 0, 0, 0);
+
+                if (today >= nextDate) {
+                  const hasPendingTask = state.maintenanceTasks.some(
+                    (t) =>
+                      t.deviceId === device.id &&
+                      t.type.includes("周期保养") &&
+                      (t.status === "pending" ||
+                        t.status === "in_progress" ||
+                        t.status === "overdue")
+                  );
+                  if (!hasPendingTask) {
+                    shouldGenerate = true;
+                    dueDate = nextDate.toISOString().split("T")[0];
+                    description = `按日期周期保养: 每 ${rule.interval} 天一次`;
+                  }
+                }
+              }
+
+              if (shouldGenerate) {
+                const todayCheck = new Date();
+                todayCheck.setHours(0, 0, 0, 0);
+                const dueDateCheck = new Date(dueDate);
+                dueDateCheck.setHours(0, 0, 0, 0);
+                const taskStatus: MaintenanceStatus = dueDateCheck < todayCheck ? "overdue" : "pending";
+                
+                const newTask = {
+                  id: generateId("maint"),
+                  deviceId: device.id,
+                  type: "周期保养",
+                  description,
+                  dueDate,
+                  status: taskStatus,
+                  isAutoGenerated: true,
+                  cycleRule: rule,
+                };
+
+                newTasks = [newTask, ...newTasks];
+
+                updatedDevices = updatedDevices.map((d) => {
+                  if (d.id === device.id && d.maintenanceCycleRules) {
+                    const newRules = [...d.maintenanceCycleRules];
+                    newRules[ruleIdx] = {
+                      ...newRules[ruleIdx],
+                      lastTriggeredAt: new Date().toISOString().split("T")[0],
+                      lastFlightHours:
+                        rule.type === "flight_hours"
+                          ? device.totalFlightHours
+                          : undefined,
+                    };
+                    return { ...d, maintenanceCycleRules: newRules };
+                  }
+                  return d;
+                });
+              }
+            });
+          });
+
+          return {
+            maintenanceTasks: newTasks,
+            devices: updatedDevices,
+          };
+        }),
+
+      addRepairLogEntry: (entry) =>
+        set((state) => ({
+          repairLogEntries: [
+            { ...entry, id: generateId("rlog") },
+            ...state.repairLogEntries,
+          ],
+        })),
+
+      addBudget: (budget) =>
+        set((state) => ({
+          budgets: [
+            { ...budget, id: generateId("bg"), createdAt: new Date().toISOString().split("T")[0] },
+            ...state.budgets,
+          ],
+        })),
+
+      updateBudget: (id, budget) =>
+        set((state) => ({
+          budgets: state.budgets.map((b) =>
+            b.id === id ? { ...b, ...budget } : b
+          ),
+        })),
+
+      deleteBudget: (id) =>
+        set((state) => ({
+          budgets: state.budgets.filter((b) => b.id !== id),
         })),
     }),
     {

@@ -10,10 +10,13 @@ import {
   User,
   FileText,
   Clock,
+  Wrench,
+  Search,
+  ArrowRight,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import Modal from "@/components/ui/Modal";
-import type { InventoryItemStatus, StockTakeItem } from "@/types";
+import type { InventoryItemStatus, StockTakeItem, FollowUpStatus } from "@/types";
 
 const STATUS_LABELS: Record<InventoryItemStatus, string> = {
   normal: "正常",
@@ -27,11 +30,28 @@ const STATUS_COLORS: Record<InventoryItemStatus, string> = {
   damaged: "bg-orange-100 text-orange-700",
 };
 
+const FOLLOWUP_STATUS_LABELS: Record<FollowUpStatus, string> = {
+  pending: "待处理",
+  in_progress: "处理中",
+  resolved: "已解决",
+  closed: "已关闭",
+};
+
+const FOLLOWUP_STATUS_COLORS: Record<FollowUpStatus, string> = {
+  pending: "bg-yellow-100 text-yellow-700",
+  in_progress: "bg-blue-100 text-blue-700",
+  resolved: "bg-green-100 text-green-700",
+  closed: "bg-gray-100 text-gray-700",
+};
+
 export default function StockTakePage() {
   const devices = useStore((state) => state.devices);
   const stockTakes = useStore((state) => state.stockTakes);
   const addStockTake = useStore((state) => state.addStockTake);
   const updateStockTake = useStore((state) => state.updateStockTake);
+  const addTicket = useStore((state) => state.addTicket);
+  const setDeviceStatus = useStore((state) => state.setDeviceStatus);
+  const updateDevice = useStore((state) => state.updateDevice);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState<string | null>(null);
@@ -101,6 +121,69 @@ export default function StockTakePage() {
   };
 
   const getDevice = (deviceId: string) => devices.find((d) => d.id === deviceId);
+
+  const handleCreateTicketFromDamage = (stockTakeId: string, deviceId: string) => {
+    const device = getDevice(deviceId);
+    if (!device) return;
+
+    addTicket({
+      deviceId,
+      title: `盘点发现损坏：${device.name}`,
+      description: `资产盘点中发现该设备损坏，需要维修处理`,
+      status: "open",
+      priority: "high",
+      reporter: "系统",
+      createdAt: new Date().toISOString().split("T")[0],
+      isGround: true,
+    });
+
+    setItems((prev) =>
+      prev.map((item) =>
+        item.deviceId === deviceId
+          ? { ...item, ticketCreated: true, ticketId: "", followUpStatus: "in_progress" as FollowUpStatus }
+          : item
+      )
+    );
+
+    const currentStockTake = stockTakes.find((st) => st.id === stockTakeId);
+    if (currentStockTake) {
+      const updatedItems = currentStockTake.items.map((item) =>
+        item.deviceId === deviceId
+          ? { ...item, ticketCreated: true, ticketId: "", followUpStatus: "in_progress" as FollowUpStatus }
+          : item
+      );
+      updateStockTake(stockTakeId, { items: updatedItems });
+    }
+
+    alert("已成功创建故障工单并停飞设备");
+  };
+
+  const handleUpdateFollowUpStatus = (
+    stockTakeId: string,
+    deviceId: string,
+    status: FollowUpStatus
+  ) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.deviceId === deviceId ? { ...item, followUpStatus: status } : item
+      )
+    );
+
+    const currentStockTake = stockTakes.find((st) => st.id === stockTakeId);
+    if (currentStockTake) {
+      const updatedItems = currentStockTake.items.map((item) =>
+        item.deviceId === deviceId ? { ...item, followUpStatus: status } : item
+      );
+      updateStockTake(stockTakeId, { items: updatedItems });
+    }
+
+    if (status === "resolved") {
+      const device = getDevice(deviceId);
+      if (device && device.status === "grounded") {
+        setDeviceStatus(deviceId, "active");
+      }
+    }
+  };
 
   const getStatusSummary = (stockTakeItems: StockTakeItem[]) => {
     const normal = stockTakeItems.filter((i) => i.status === "normal").length;
@@ -378,6 +461,16 @@ export default function StockTakePage() {
                     <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
                       盘点状态
                     </th>
+                    {currentStockTake.status === "completed" && (
+                      <>
+                        <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                          处理状态
+                        </th>
+                        <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                          后续处理
+                        </th>
+                      </>
+                    )}
                     <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
                       备注
                     </th>
@@ -423,6 +516,82 @@ export default function StockTakePage() {
                             </select>
                           )}
                         </td>
+                        {currentStockTake.status === "completed" && (
+                          <>
+                            <td className="px-4 py-3">
+                              {item.status !== "normal" ? (
+                                <span
+                                  className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    item.followUpStatus
+                                      ? FOLLOWUP_STATUS_COLORS[item.followUpStatus]
+                                      : FOLLOWUP_STATUS_COLORS.pending
+                                  }`}
+                                >
+                                  {item.followUpStatus
+                                    ? FOLLOWUP_STATUS_LABELS[item.followUpStatus]
+                                    : "待处理"}
+                                </span>
+                              ) : (
+                                <span className="text-sm text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {item.status === "damaged" && !item.ticketCreated && (
+                                <button
+                                  onClick={() =>
+                                    handleCreateTicketFromDamage(
+                                      currentStockTake.id,
+                                      item.deviceId
+                                    )
+                                  }
+                                  className="flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-medium hover:bg-orange-200 transition-colors"
+                                >
+                                  <Wrench className="w-3 h-3" />
+                                  创建工单
+                                </button>
+                              )}
+                              {item.status === "damaged" && item.ticketCreated && (
+                                <select
+                                  value={item.followUpStatus || "in_progress"}
+                                  onChange={(e) =>
+                                    handleUpdateFollowUpStatus(
+                                      currentStockTake.id,
+                                      item.deviceId,
+                                      e.target.value as FollowUpStatus
+                                    )
+                                  }
+                                  className="px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none"
+                                >
+                                  <option value="pending">待处理</option>
+                                  <option value="in_progress">处理中</option>
+                                  <option value="resolved">已解决</option>
+                                  <option value="closed">已关闭</option>
+                                </select>
+                              )}
+                              {item.status === "missing" && (
+                                <select
+                                  value={item.followUpStatus || "pending"}
+                                  onChange={(e) =>
+                                    handleUpdateFollowUpStatus(
+                                      currentStockTake.id,
+                                      item.deviceId,
+                                      e.target.value as FollowUpStatus
+                                    )
+                                  }
+                                  className="px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none"
+                                >
+                                  <option value="pending">待追踪</option>
+                                  <option value="in_progress">追踪中</option>
+                                  <option value="resolved">已找回</option>
+                                  <option value="closed">已核销</option>
+                                </select>
+                              )}
+                              {item.status === "normal" && (
+                                <span className="text-sm text-gray-400">-</span>
+                              )}
+                            </td>
+                          </>
+                        )}
                         <td className="px-4 py-3">
                           {currentStockTake.status === "completed" ? (
                             <span className="text-sm text-gray-500">

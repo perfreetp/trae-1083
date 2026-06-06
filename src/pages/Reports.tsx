@@ -11,6 +11,13 @@ import {
   Layers,
   Cpu,
   Target,
+  ListTodo,
+  Plane,
+  Plus,
+  Settings,
+  TrendingDown,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import {
   BarChart,
@@ -46,12 +53,79 @@ const COST_LABELS: Record<string, string> = {
 export default function Reports() {
   const costRecords = useStore((state) => state.costRecords);
   const devices = useStore((state) => state.devices);
+  const tickets = useStore((state) => state.tickets);
+  const maintenanceTasks = useStore((state) => state.maintenanceTasks);
+  const flightRecords = useStore((state) => state.flightRecords);
   const depreciations = useStore((state) => state.depreciations);
+  const budgets = useStore((state) => state.budgets);
+  const addBudget = useStore((state) => state.addBudget);
+  const deleteBudget = useStore((state) => state.deleteBudget);
   const [timeRange, setTimeRange] = useState("year");
-  const [viewMode, setViewMode] = useState<"device" | "category">("device");
+  const [viewMode, setViewMode] = useState<"device" | "category" | "task" | "budget">("device");
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [budgetForm, setBudgetForm] = useState({
+    type: "monthly" as "monthly" | "device",
+    period: new Date().toISOString().slice(0, 7),
+    deviceId: "",
+    category: "all" as "maintenance" | "spare_parts" | "external_repair" | "insurance" | "other" | "all",
+    amount: 0,
+  });
 
   const totalCost = costRecords.reduce((sum, c) => sum + c.amount, 0);
   const avgMonthlyCost = Math.round(totalCost / 6);
+
+  const handleAddBudget = () => {
+    if (budgetForm.amount <= 0) {
+      alert("请输入预算金额");
+      return;
+    }
+    addBudget({
+      type: budgetForm.type,
+      period: budgetForm.type === "monthly" ? budgetForm.period : undefined,
+      deviceId: budgetForm.type === "device" ? budgetForm.deviceId : undefined,
+      category: budgetForm.category,
+      amount: budgetForm.amount,
+    });
+    setIsBudgetModalOpen(false);
+    setBudgetForm({
+      type: "monthly",
+      period: new Date().toISOString().slice(0, 7),
+      deviceId: "",
+      category: "all",
+      amount: 0,
+    });
+  };
+
+  const getBudgetComparison = () => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const monthlyBudgets = budgets.filter((b) => b.type === "monthly");
+    
+    return monthlyBudgets.map((budget) => {
+      const monthRecords = costRecords.filter((c) => {
+        const recordMonth = c.date.slice(0, 7);
+        const matchesMonth = budget.period ? recordMonth === budget.period : recordMonth === currentMonth;
+        const matchesCategory = budget.category === "all" || c.category === budget.category;
+        return matchesMonth && matchesCategory;
+      });
+      
+      const actual = monthRecords.reduce((sum, c) => sum + c.amount, 0);
+      const difference = actual - budget.amount;
+      const percentage = budget.amount > 0 ? Math.round((actual / budget.amount) * 100) : 0;
+      
+      return {
+        id: budget.id,
+        period: budget.period || currentMonth,
+        category: budget.category,
+        budget: budget.amount,
+        actual,
+        difference,
+        percentage,
+        isOver: actual > budget.amount,
+      };
+    });
+  };
+
+  const budgetComparison = getBudgetComparison();
 
   const costByCategory = Object.entries(
     costRecords.reduce((acc, record) => {
@@ -116,6 +190,61 @@ export default function Reports() {
     其他: d.other,
   }));
 
+  const costByTask = costRecords.reduce((acc, record) => {
+    let taskName = "未关联任务";
+    let taskType = "other";
+    let relatedDevice = "-";
+
+    if (record.ticketId) {
+      const ticket = tickets.find((t) => t.id === record.ticketId);
+      if (ticket) {
+        taskName = ticket.title;
+        taskType = "repair";
+        const device = devices.find((d) => d.id === ticket.deviceId);
+        relatedDevice = device?.name || "未知设备";
+      }
+    } else if (record.taskId && record.taskType === "maintenance") {
+      const task = maintenanceTasks.find((t) => t.id === record.taskId);
+      if (task) {
+        taskName = task.type;
+        taskType = "maintenance";
+        const device = devices.find((d) => d.id === task.deviceId);
+        relatedDevice = device?.name || "未知设备";
+      }
+    }
+
+    const key = taskName + "|" + relatedDevice;
+    if (!acc[key]) {
+      acc[key] = {
+        taskName,
+        taskType,
+        relatedDevice,
+        total: 0,
+        maintenance: 0,
+        spare_parts: 0,
+        external_repair: 0,
+        insurance: 0,
+        other: 0,
+      };
+    }
+    acc[key].total += record.amount;
+    (acc[key] as any)[record.category] =
+      ((acc[key] as any)[record.category] || 0) + record.amount;
+
+    return acc;
+  }, {} as Record<string, any>);
+
+  const costByTaskList = Object.values(costByTask).sort(
+    (a, b) => b.total - a.total
+  );
+
+  const taskTypeLabels: Record<string, string> = {
+    flight: "飞行任务",
+    maintenance: "维保任务",
+    repair: "故障维修",
+    other: "其他",
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -145,6 +274,17 @@ export default function Reports() {
               按设备
             </button>
             <button
+              onClick={() => setViewMode("task")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                viewMode === "task"
+                  ? "bg-primary-500 text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <ListTodo className="w-4 h-4" />
+              按任务
+            </button>
+            <button
               onClick={() => setViewMode("category")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 viewMode === "category"
@@ -155,12 +295,32 @@ export default function Reports() {
               <Layers className="w-4 h-4" />
               按分类
             </button>
+            <button
+              onClick={() => setViewMode("budget")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                viewMode === "budget"
+                  ? "bg-primary-500 text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Target className="w-4 h-4" />
+              预算对比
+            </button>
           </div>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
-          <Download className="w-5 h-5" />
-          导出报表
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setIsBudgetModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <Settings className="w-5 h-5" />
+            设置预算
+          </button>
+          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
+            <Download className="w-5 h-5" />
+            导出报表
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -361,6 +521,218 @@ export default function Reports() {
               </table>
             </div>
           </>
+        ) : viewMode === "task" ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                    任务名称
+                  </th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                    任务类型
+                  </th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                    关联设备
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    维保费用
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    备件费用
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    外修费用
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    总计
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    占比
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {costByTaskList.map((item, index) => (
+                  <tr key={index} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-sm text-gray-800 font-medium">
+                      {item.taskName}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                          item.taskType === "repair"
+                            ? "bg-red-100 text-red-700"
+                            : item.taskType === "maintenance"
+                            ? "bg-blue-100 text-blue-700"
+                            : item.taskType === "flight"
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {taskTypeLabels[item.taskType] || "其他"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {item.relatedDevice}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-700">
+                      ¥{item.maintenance.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-700">
+                      ¥{item.spare_parts.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-700">
+                      ¥{item.external_repair.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">
+                      ¥{item.total.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-600">
+                      {totalCost > 0
+                        ? ((item.total / totalCost) * 100).toFixed(1)
+                        : 0}
+                      %
+                    </td>
+                  </tr>
+                ))}
+                {costByTaskList.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                      暂无任务相关的费用数据
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : viewMode === "budget" ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingDown className="w-5 h-5 text-green-600" />
+                  <span className="font-medium text-green-800">预算内项目</span>
+                </div>
+                <p className="text-2xl font-bold text-green-700">
+                  {budgetComparison.filter((b) => !b.isOver).length}
+                </p>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                  <span className="font-medium text-red-800">超支项目</span>
+                </div>
+                <p className="text-2xl font-bold text-red-700">
+                  {budgetComparison.filter((b) => b.isOver).length}
+                </p>
+              </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <DollarSign className="w-5 h-5 text-orange-600" />
+                  <span className="font-medium text-orange-800">累计超支</span>
+                </div>
+                <p className="text-2xl font-bold text-orange-700">
+                  ¥{Math.max(0, budgetComparison.reduce((sum, b) => sum + Math.max(0, b.difference), 0)).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                      周期
+                    </th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                      费用类别
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      预算金额
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      实际支出
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      差额
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      执行率
+                    </th>
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-600">
+                      状态
+                    </th>
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-600">
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {budgetComparison.map((item) => (
+                    <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 text-sm text-gray-800">
+                        {item.period}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {COST_LABELS[item.category] || "全部"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-700">
+                        ¥{item.budget.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-medium text-gray-800">
+                        ¥{item.actual.toLocaleString()}
+                      </td>
+                      <td className={`px-4 py-3 text-right text-sm font-semibold ${
+                        item.isOver ? "text-red-600" : "text-green-600"
+                      }`}>
+                        {item.isOver ? "+" : ""}¥{item.difference.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-600">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${
+                                item.percentage > 100 ? "bg-red-500" : item.percentage > 80 ? "bg-orange-500" : "bg-green-500"
+                              }`}
+                              style={{ width: `${Math.min(item.percentage, 100)}%` }}
+                            />
+                          </div>
+                          <span>{item.percentage}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          item.isOver
+                            ? "bg-red-100 text-red-700"
+                            : item.percentage > 80
+                            ? "bg-orange-100 text-orange-700"
+                            : "bg-green-100 text-green-700"
+                        }`}>
+                          {item.isOver ? "超支" : item.percentage > 80 ? "预警" : "正常"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => deleteBudget(item.id)}
+                          className="text-red-500 hover:text-red-700 text-sm"
+                        >
+                          删除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {budgetComparison.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                        暂无预算数据，点击右上角"设置预算"添加
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -532,6 +904,116 @@ export default function Reports() {
           ))}
         </div>
       </div>
+
+      {isBudgetModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <h3 className="text-xl font-semibold text-gray-800">设置预算</h3>
+              <button
+                onClick={() => setIsBudgetModalOpen(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  预算类型
+                </label>
+                <select
+                  value={budgetForm.type}
+                  onChange={(e) =>
+                    setBudgetForm({ ...budgetForm, type: e.target.value as "monthly" | "device" })
+                  }
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="monthly">月度预算</option>
+                  <option value="device">设备预算</option>
+                </select>
+              </div>
+              {budgetForm.type === "monthly" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    月份
+                  </label>
+                  <input
+                    type="month"
+                    value={budgetForm.period}
+                    onChange={(e) => setBudgetForm({ ...budgetForm, period: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              )}
+              {budgetForm.type === "device" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    选择设备
+                  </label>
+                  <select
+                    value={budgetForm.deviceId}
+                    onChange={(e) => setBudgetForm({ ...budgetForm, deviceId: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">请选择设备</option>
+                    {devices.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({d.assetNumber})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  费用类别
+                </label>
+                <select
+                  value={budgetForm.category}
+                  onChange={(e) =>
+                    setBudgetForm({ ...budgetForm, category: e.target.value as any })
+                  }
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="all">全部类别</option>
+                  <option value="maintenance">维保费用</option>
+                  <option value="spare_parts">备件费用</option>
+                  <option value="external_repair">外修费用</option>
+                  <option value="insurance">保险费用</option>
+                  <option value="other">其他费用</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  预算金额 (元)
+                </label>
+                <input
+                  type="number"
+                  value={budgetForm.amount || ""}
+                  onChange={(e) => setBudgetForm({ ...budgetForm, amount: Number(e.target.value) })}
+                  placeholder="请输入预算金额"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 border-t border-gray-100">
+              <button
+                onClick={() => setIsBudgetModalOpen(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAddBudget}
+                className="flex-1 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

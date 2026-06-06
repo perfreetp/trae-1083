@@ -12,6 +12,7 @@ import {
   User,
   FileText,
   CheckCircle,
+  Link2,
 } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import { useStore } from "@/store/useStore";
@@ -34,6 +35,9 @@ export default function Inventory() {
     inventoryTransactions,
     updateSparePartStock,
     addSparePart,
+    devices,
+    tickets,
+    maintenanceTasks,
   } = useStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
@@ -47,6 +51,10 @@ export default function Inventory() {
     quantity: 1,
     operator: "",
     notes: "",
+    linkType: "none" as "none" | "device" | "ticket" | "maintenance",
+    linkedDeviceId: "",
+    linkedTicketId: "",
+    linkedMaintenanceId: "",
   });
   const [partForm, setPartForm] = useState<Omit<SparePart, "id">>(emptyPart);
 
@@ -88,7 +96,7 @@ export default function Inventory() {
     if (success !== false) {
       setIsInModalOpen(false);
       setSelectedPart(null);
-      setStockForm({ quantity: 1, operator: "", notes: "" });
+      setStockForm({ quantity: 1, operator: "", notes: "", linkType: "none", linkedDeviceId: "", linkedTicketId: "", linkedMaintenanceId: "" });
     }
   };
 
@@ -105,17 +113,27 @@ export default function Inventory() {
       alert("库存不足，无法出库");
       return;
     }
+    const deviceId = stockForm.linkType === "device" ? stockForm.linkedDeviceId :
+                     stockForm.linkType === "ticket" ? tickets.find(t => t.id === stockForm.linkedTicketId)?.deviceId :
+                     stockForm.linkType === "maintenance" ? maintenanceTasks.find(t => t.id === stockForm.linkedMaintenanceId)?.deviceId :
+                     undefined;
+    const ticketId = stockForm.linkType === "ticket" ? stockForm.linkedTicketId : undefined;
+    const maintenanceTaskId = stockForm.linkType === "maintenance" ? stockForm.linkedMaintenanceId : undefined;
+    
     const success = updateSparePartStock(
       selectedPart.id,
       stockForm.quantity,
       "out",
       stockForm.operator,
-      stockForm.notes
+      stockForm.notes,
+      deviceId,
+      ticketId,
+      maintenanceTaskId
     ) as unknown as boolean;
     if (success !== false) {
       setIsOutModalOpen(false);
       setSelectedPart(null);
-      setStockForm({ quantity: 1, operator: "", notes: "" });
+      setStockForm({ quantity: 1, operator: "", notes: "", linkType: "none", linkedDeviceId: "", linkedTicketId: "", linkedMaintenanceId: "" });
     }
   };
 
@@ -131,13 +149,13 @@ export default function Inventory() {
 
   const openInModal = (part: SparePart) => {
     setSelectedPart(part);
-    setStockForm({ quantity: 1, operator: "", notes: "" });
+    setStockForm({ quantity: 1, operator: "", notes: "", linkType: "none", linkedDeviceId: "", linkedTicketId: "", linkedMaintenanceId: "" });
     setIsInModalOpen(true);
   };
 
   const openOutModal = (part: SparePart) => {
     setSelectedPart(part);
-    setStockForm({ quantity: 1, operator: "", notes: "" });
+    setStockForm({ quantity: 1, operator: "", notes: "", linkType: "none", linkedDeviceId: "", linkedTicketId: "", linkedMaintenanceId: "" });
     setIsOutModalOpen(true);
   };
 
@@ -504,6 +522,93 @@ export default function Inventory() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <Link2 className="w-4 h-4 inline mr-1" />
+                领用去向
+              </label>
+              <select
+                value={stockForm.linkType}
+                onChange={(e) =>
+                  setStockForm({
+                    ...stockForm,
+                    linkType: e.target.value as "none" | "device" | "ticket" | "maintenance",
+                    linkedDeviceId: "",
+                    linkedTicketId: "",
+                    linkedMaintenanceId: "",
+                  })
+                }
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="none">不关联</option>
+                <option value="device">关联设备</option>
+                <option value="ticket">关联故障工单</option>
+                <option value="maintenance">关联维保任务</option>
+              </select>
+            </div>
+            {stockForm.linkType === "device" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  选择设备 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={stockForm.linkedDeviceId}
+                  onChange={(e) =>
+                    setStockForm({ ...stockForm, linkedDeviceId: e.target.value })
+                  }
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">请选择设备</option>
+                  {devices.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.assetNumber})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {stockForm.linkType === "ticket" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  选择故障工单 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={stockForm.linkedTicketId}
+                  onChange={(e) =>
+                    setStockForm({ ...stockForm, linkedTicketId: e.target.value })
+                  }
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">请选择工单</option>
+                  {tickets.filter(t => t.status !== "resolved" && t.status !== "closed").map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {stockForm.linkType === "maintenance" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  选择维保任务 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={stockForm.linkedMaintenanceId}
+                  onChange={(e) =>
+                    setStockForm({ ...stockForm, linkedMaintenanceId: e.target.value })
+                  }
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">请选择维保任务</option>
+                  {maintenanceTasks.filter(t => t.status !== "completed").map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 备注
               </label>
               <textarea
@@ -567,6 +672,9 @@ export default function Inventory() {
                       经办人
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600">
+                      关联对象
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600">
                       备注
                     </th>
                   </tr>
@@ -576,6 +684,23 @@ export default function Inventory() {
                     const part = spareParts.find(
                       (p) => p.id === tx.sparePartId
                     );
+                    const linkedDevice = tx.deviceId ? devices.find(d => d.id === tx.deviceId) : null;
+                    const linkedTicket = tx.ticketId ? tickets.find(t => t.id === tx.ticketId) : null;
+                    const linkedTask = tx.maintenanceTaskId ? maintenanceTasks.find(t => t.id === tx.maintenanceTaskId) : null;
+                    
+                    let linkedText = "-";
+                    let linkedColor = "text-gray-500";
+                    if (linkedDevice) {
+                      linkedText = `设备: ${linkedDevice.name}`;
+                      linkedColor = "text-blue-600";
+                    } else if (linkedTicket) {
+                      linkedText = `工单: ${linkedTicket.title}`;
+                      linkedColor = "text-red-600";
+                    } else if (linkedTask) {
+                      linkedText = `维保: ${linkedTask.type}`;
+                      linkedColor = "text-green-600";
+                    }
+                    
                     return (
                       <tr key={tx.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-sm text-gray-700">
@@ -601,6 +726,9 @@ export default function Inventory() {
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {tx.operator}
+                        </td>
+                        <td className={`px-4 py-3 text-sm ${linkedColor}`}>
+                          {linkedText}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">
                           {tx.notes || "-"}
