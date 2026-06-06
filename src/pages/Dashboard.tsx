@@ -1,0 +1,406 @@
+import {
+  Cpu,
+  PlaneTakeoff,
+  Ticket,
+  BatteryFull,
+  AlertTriangle,
+  Calendar,
+  BatteryLow,
+  Package,
+  Shield,
+  Clock,
+  TrendingUp,
+} from "lucide-react";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+} from "recharts";
+import StatCard from "@/components/ui/StatCard";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { useStore } from "@/store/useStore";
+
+const DEVICE_STATUS_COLORS = {
+  active: "#10b981",
+  maintenance: "#3b82f6",
+  grounded: "#ef4444",
+  retired: "#6b7280",
+};
+
+export default function Dashboard() {
+  const devices = useStore((state) => state.devices);
+  const flightRecords = useStore((state) => state.flightRecords);
+  const tickets = useStore((state) => state.tickets);
+  const batteries = useStore((state) => state.batteries);
+  const alerts = useStore((state) => state.alerts);
+  const maintenanceTasks = useStore((state) => state.maintenanceTasks);
+  const costRecords = useStore((state) => state.costRecords);
+
+  const totalFlightHours = devices.reduce(
+    (sum, d) => sum + d.totalFlightHours,
+    0
+  );
+  const avgBatteryHealth =
+    batteries.length > 0
+      ? Math.round(
+          batteries.reduce((sum, b) => sum + b.health, 0) / batteries.length
+        )
+      : 0;
+  const openTickets = tickets.filter(
+    (t) => t.status !== "resolved" && t.status !== "closed"
+  ).length;
+  const pendingMaintenance = maintenanceTasks.filter(
+    (m) => m.status === "pending" || m.status === "overdue"
+  ).length;
+
+  const deviceStatusData = [
+    {
+      name: "在役",
+      value: devices.filter((d) => d.status === "active").length,
+      color: DEVICE_STATUS_COLORS.active,
+    },
+    {
+      name: "维保中",
+      value: devices.filter((d) => d.status === "maintenance").length,
+      color: DEVICE_STATUS_COLORS.maintenance,
+    },
+    {
+      name: "停飞",
+      value: devices.filter((d) => d.status === "grounded").length,
+      color: DEVICE_STATUS_COLORS.grounded,
+    },
+  ];
+
+  const monthlyFlightData = [
+    { month: "1月", hours: 42 },
+    { month: "2月", hours: 38 },
+    { month: "3月", hours: 55 },
+    { month: "4月", hours: 48 },
+    { month: "5月", hours: 62 },
+    { month: "6月", hours: 58 },
+  ];
+
+  const costData = [
+    { month: "1月", maintenance: 3200, spareParts: 1800, external: 0 },
+    { month: "2月", maintenance: 2800, spareParts: 2400, external: 3500 },
+    { month: "3月", maintenance: 4500, spareParts: 1200, external: 0 },
+    { month: "4月", maintenance: 3800, spareParts: 3200, external: 0 },
+    { month: "5月", maintenance: 5200, spareParts: 2800, external: 3500 },
+    { month: "6月", maintenance: 2000, spareParts: 1500, external: 0 },
+  ];
+
+  const alertIcons: Record<string, typeof AlertTriangle> = {
+    maintenance: Calendar,
+    insurance: Shield,
+    battery: BatteryLow,
+    stock: Package,
+    overdue: Clock,
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard
+          title="在役设备"
+          value={devices.filter((d) => d.status === "active").length + " 台"}
+          icon={Cpu}
+          trend={12}
+          trendLabel="较上月"
+          color="blue"
+        />
+        <StatCard
+          title="总飞行小时"
+          value={totalFlightHours.toFixed(1) + " h"}
+          icon={PlaneTakeoff}
+          trend={8.5}
+          trendLabel="较上月"
+          color="green"
+        />
+        <StatCard
+          title="待处理工单"
+          value={openTickets + " 个"}
+          icon={Ticket}
+          trend={-15}
+          trendLabel="较上周"
+          color="orange"
+        />
+        <StatCard
+          title="电池平均健康度"
+          value={avgBatteryHealth + "%"}
+          icon={BatteryFull}
+          trend={-3.2}
+          trendLabel="较上月"
+          color="red"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">
+            设备状态分布
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={deviceStatusData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  dataKey="value"
+                >
+                  {deviceStatusData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex justify-center gap-6 mt-4">
+            {deviceStatusData.map((item) => (
+              <div key={item.name} className="flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="text-sm text-gray-600">
+                  {item.name}: {item.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">
+            月度飞行时长
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyFlightData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Line
+                  type="monotone"
+                  dataKey="hours"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={{ fill: "#3b82f6" }}
+                  name="飞行小时"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">
+            告警通知
+          </h3>
+          <div className="space-y-3 max-h-64 overflow-y-auto">
+            {alerts.map((alert) => {
+              const Icon = alertIcons[alert.type] || AlertTriangle;
+              return (
+                <div
+                  key={alert.id}
+                  className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  <div
+                    className={`p-2 rounded-lg ${
+                      alert.severity === "error"
+                        ? "bg-red-100 text-red-600"
+                        : alert.severity === "warning"
+                        ? "bg-orange-100 text-orange-600"
+                        : "bg-blue-100 text-blue-600"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">
+                      {alert.title}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                      {alert.message}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">{alert.date}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">
+            维保成本趋势
+          </h3>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={costData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Bar dataKey="maintenance" name="维保费用" fill="#3b82f6" />
+                <Bar dataKey="spareParts" name="备件费用" fill="#10b981" />
+                <Bar dataKey="external" name="外修费用" fill="#f97316" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex justify-center gap-6 mt-4">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-blue-500" />
+              <span className="text-sm text-gray-600">维保费用</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-green-500" />
+              <span className="text-sm text-gray-600">备件费用</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-orange-500" />
+              <span className="text-sm text-gray-600">外修费用</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-800">最近飞行记录</h3>
+            <span className="text-sm text-primary-600 cursor-pointer hover:underline">
+              查看全部
+            </span>
+          </div>
+          <div className="space-y-3">
+            {flightRecords.slice(0, 5).map((record) => {
+              const device = devices.find((d) => d.id === record.deviceId);
+              return (
+                <div
+                  key={record.id}
+                  className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors border border-gray-100"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                      <PlaneTakeoff className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">
+                        {device?.name || "未知设备"}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {record.pilot} · {record.location}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-gray-800">
+                      {record.duration}h
+                    </p>
+                    <p className="text-xs text-gray-500">{record.date}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-blue-100 text-sm">待维保任务</p>
+              <p className="text-3xl font-bold mt-2">{pendingMaintenance}</p>
+              <p className="text-blue-200 text-sm mt-2">
+                其中 {maintenanceTasks.filter((m) => m.status === "overdue").length} 项已逾期
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <Wrench className="w-8 h-8" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-orange-100 text-sm">本月总成本</p>
+              <p className="text-3xl font-bold mt-2">
+                ¥
+                {costRecords
+                  .filter((c) => c.date.startsWith("2025-06"))
+                  .reduce((sum, c) => sum + c.amount, 0)
+                  .toLocaleString()}
+              </p>
+              <p className="text-orange-200 text-sm mt-2">
+                维保 + 备件 + 外修
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <TrendingUp className="w-8 h-8" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-green-100 text-sm">设备可用率</p>
+              <p className="text-3xl font-bold mt-2">
+                {devices.length > 0
+                  ? Math.round(
+                      (devices.filter((d) => d.status === "active").length /
+                        devices.length) *
+                        100
+                    )
+                  : 0}
+                %
+              </p>
+              <p className="text-green-200 text-sm mt-2">
+                目标 ≥ 90%
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <Cpu className="w-8 h-8" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Wrench(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+    </svg>
+  );
+}
