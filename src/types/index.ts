@@ -164,6 +164,7 @@ export interface CostRecord {
   amount: number;
   date: string;
   description: string;
+  operator?: string;
   deviceId?: string;
   ticketId?: string;
   taskId?: string;

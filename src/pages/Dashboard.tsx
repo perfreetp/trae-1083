@@ -13,6 +13,9 @@ import {
   TrendingUp,
   Wrench as WrenchIcon,
   AlertCircle,
+  DollarSign,
+  TrendingUp as TrendingUpIcon,
+  ExternalLink as ExternalLinkIcon,
 } from "lucide-react";
 import {
   PieChart,
@@ -47,6 +50,7 @@ export default function Dashboard() {
   const alerts = useStore((state) => state.alerts);
   const maintenanceTasks = useStore((state) => state.maintenanceTasks);
   const costRecords = useStore((state) => state.costRecords);
+  const budgets = useStore((state) => state.budgets);
   const checkAndGenerateCycleMaintenance = useStore(
     (state) => state.checkAndGenerateCycleMaintenance
   );
@@ -73,6 +77,56 @@ export default function Dashboard() {
   const pendingMaintenance = maintenanceTasks.filter(
     (m) => m.status === "pending" || m.status === "overdue"
   ).length;
+
+  const now = new Date();
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    .toISOString()
+    .split("T")[0];
+  const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    .toISOString()
+    .split("T")[0];
+
+  const monthlyCostsByDevice = devices.map((device) => {
+    const deviceCosts = costRecords.filter(
+      (c) =>
+        c.deviceId === device.id &&
+        c.date >= currentMonthStart &&
+        c.date <= currentMonthEnd
+    );
+    const totalCost = deviceCosts.reduce((sum, c) => sum + c.amount, 0);
+    const externalRepairCount = deviceCosts.filter(
+      (c) => c.category === "external_repair"
+    ).length;
+    const deviceBudget = budgets.find(
+      (b) => b.deviceId === device.id && b.category === "all"
+    );
+    const budgetAmount = deviceBudget?.amount || 0;
+    const overBudget = budgetAmount > 0 && totalCost > budgetAmount;
+    const overBudgetPercent =
+      budgetAmount > 0 ? Math.round((totalCost / budgetAmount) * 100) : 0;
+
+    const isHighCost = totalCost > 2000;
+    const isExternalFrequent = externalRepairCount >= 2;
+    const isAbnormal = isHighCost || overBudget || isExternalFrequent;
+
+    let abnormalType: string[] = [];
+    if (isHighCost) abnormalType.push("费用较高");
+    if (overBudget) abnormalType.push("预算超支");
+    if (isExternalFrequent) abnormalType.push("外修频繁");
+
+    return {
+      device,
+      totalCost,
+      externalRepairCount,
+      budgetAmount,
+      overBudget,
+      overBudgetPercent,
+      isAbnormal,
+      abnormalType,
+    };
+  });
+
+  const abnormalDevices = monthlyCostsByDevice.filter((d) => d.isAbnormal);
 
   const today = new Date();
   const soonDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -300,6 +354,62 @@ export default function Dashboard() {
               );
             })}
           </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <TrendingUpIcon className="w-5 h-5 text-red-500" />
+            本月成本异常
+          </h3>
+          {abnormalDevices.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              本月暂无成本异常设备
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {abnormalDevices.map((item) => (
+                <div
+                  key={item.device.id}
+                  className="flex items-center justify-between p-3 rounded-lg bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
+                  onClick={() => {
+                    window.location.hash = `#/reports?device=${item.device.id}`;
+                    window.dispatchEvent(new HashChangeEvent("hashchange"));
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-red-100 text-red-600">
+                      <DollarSign className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">
+                        {item.device.name}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        {item.abnormalType.map((type, idx) => (
+                          <span
+                            key={idx}
+                            className="px-1.5 py-0.5 bg-red-200 text-red-700 text-xs rounded"
+                          >
+                            {type}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-red-600">
+                      ¥{item.totalCost.toLocaleString()}
+                    </p>
+                    {item.overBudget && (
+                      <p className="text-xs text-red-500">
+                        超预算 {item.overBudgetPercent}%
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

@@ -737,7 +737,13 @@ export default function Inventory() {
                       经办人
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600">
-                      关联对象
+                      用途类型
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600">
+                      具体对象
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600">
+                      关联设备
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600">
                       备注
@@ -753,17 +759,26 @@ export default function Inventory() {
                     const linkedTicket = tx.ticketId ? tickets.find(t => t.id === tx.ticketId) : null;
                     const linkedTask = tx.maintenanceTaskId ? maintenanceTasks.find(t => t.id === tx.maintenanceTaskId) : null;
                     
-                    let linkedText = "-";
-                    let linkedColor = "text-gray-500";
-                    if (linkedDevice) {
-                      linkedText = `设备: ${linkedDevice.name}`;
-                      linkedColor = "text-blue-600";
-                    } else if (linkedTicket) {
-                      linkedText = `工单: ${linkedTicket.title}`;
-                      linkedColor = "text-red-600";
+                    let useType = "-";
+                    let useTypeColor = "bg-gray-100 text-gray-600";
+                    let objectName = "-";
+                    let deviceName = "-";
+                    
+                    if (linkedTicket) {
+                      useType = "故障工单";
+                      useTypeColor = "bg-red-100 text-red-700";
+                      objectName = linkedTicket.title;
+                      deviceName = linkedDevice?.name || devices.find(d => d.id === linkedTicket.deviceId)?.name || "-";
                     } else if (linkedTask) {
-                      linkedText = `维保: ${linkedTask.type}`;
-                      linkedColor = "text-green-600";
+                      useType = "维保任务";
+                      useTypeColor = "bg-green-100 text-green-700";
+                      objectName = linkedTask.type;
+                      deviceName = linkedDevice?.name || devices.find(d => d.id === linkedTask.deviceId)?.name || "-";
+                    } else if (linkedDevice) {
+                      useType = "直接领用";
+                      useTypeColor = "bg-blue-100 text-blue-700";
+                      objectName = "-";
+                      deviceName = linkedDevice.name;
                     }
                     
                     return (
@@ -792,8 +807,16 @@ export default function Inventory() {
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {tx.operator}
                         </td>
-                        <td className={`px-4 py-3 text-sm ${linkedColor}`}>
-                          {linkedText}
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${useTypeColor}`}>
+                            {useType}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 max-w-48 truncate" title={objectName}>
+                          {objectName}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-blue-600">
+                          {deviceName}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">
                           {tx.notes || "-"}

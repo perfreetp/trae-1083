@@ -1,19 +1,20 @@
+const escapeCSVValue = (value: any): string => {
+  if (value === null || value === undefined) return "";
+  const strValue = String(value);
+  if (strValue.includes(",") || strValue.includes('"') || strValue.includes("\n") || strValue.includes("\r")) {
+    return `"${strValue.replace(/"/g, '""')}"`;
+  }
+  return strValue;
+};
+
 export const exportToCSV = (
   data: Record<string, any>[],
   filename: string,
   headers: { key: string; label: string }[]
 ) => {
-  const headerRow = headers.map((h) => h.label).join(",");
+  const headerRow = headers.map((h) => escapeCSVValue(h.label)).join(",");
   const dataRows = data.map((row) =>
-    headers
-      .map((h) => {
-        const value = row[h.key];
-        if (typeof value === "string" && value.includes(",")) {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value ?? "";
-      })
-      .join(",")
+    headers.map((h) => escapeCSVValue(row[h.key])).join(",")
   );
   const csvContent = [headerRow, ...dataRows].join("\n");
   const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });

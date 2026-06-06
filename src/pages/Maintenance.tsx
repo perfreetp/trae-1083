@@ -14,6 +14,9 @@ import {
   RefreshCw,
   Save,
   Download,
+  Receipt,
+  PackageOpen,
+  History,
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Modal from "@/components/ui/Modal";
@@ -51,6 +54,9 @@ export default function Maintenance() {
     refreshOverdueTasks,
     checkAndGenerateCycleMaintenance,
     updateDevice,
+    costRecords,
+    inventoryTransactions,
+    spareParts,
   } = useStore();
 
   useEffect(() => {
@@ -732,6 +738,142 @@ export default function Maintenance() {
                 <p className="text-sm text-gray-600">{selectedTask.notes}</p>
               </div>
             )}
+
+            <div className="border-t border-gray-100 pt-5">
+              <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-primary-500" />
+                成本追踪
+              </h4>
+              {(() => {
+                const taskCosts = costRecords.filter(
+                  (c) => c.taskId === selectedTask.id
+                );
+                const taskSpareTransactions = inventoryTransactions.filter(
+                  (t) => t.maintenanceTaskId === selectedTask.id && t.type === "out"
+                );
+                const maintenanceCost = selectedTask.cost || 0;
+                const maintenanceCostFromRecords = taskCosts
+                  .filter((c) => c.category === "maintenance")
+                  .reduce((sum, c) => sum + c.amount, 0);
+                const sparePartsCost = taskCosts
+                  .filter((c) => c.category === "spare_parts")
+                  .reduce((sum, c) => sum + c.amount, 0);
+                const otherCost = taskCosts
+                  .filter((c) => c.category !== "maintenance" && c.category !== "spare_parts")
+                  .reduce((sum, c) => sum + c.amount, 0);
+                const totalCost =
+                  Math.max(maintenanceCost, maintenanceCostFromRecords) +
+                  sparePartsCost +
+                  otherCost;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-4 gap-3">
+                      <div className="p-3 bg-green-50 rounded-xl text-center">
+                        <div className="text-xs text-green-600 mb-1">维保费用</div>
+                        <div className="text-lg font-bold text-green-700">
+                          ¥{Math.max(maintenanceCost, maintenanceCostFromRecords).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-blue-50 rounded-xl text-center">
+                        <div className="text-xs text-blue-600 mb-1">备件费用</div>
+                        <div className="text-lg font-bold text-blue-700">
+                          ¥{sparePartsCost.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-gray-50 rounded-xl text-center">
+                        <div className="text-xs text-gray-600 mb-1">其他费用</div>
+                        <div className="text-lg font-bold text-gray-700">
+                          ¥{otherCost.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-primary-50 rounded-xl text-center">
+                        <div className="text-xs text-primary-600 mb-1">总成本</div>
+                        <div className="text-lg font-bold text-primary-700">
+                          ¥{totalCost.toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+
+                    {taskSpareTransactions.length > 0 && (
+                      <div>
+                        <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                          <PackageOpen className="w-4 h-4 text-blue-500" />
+                          备件领用记录
+                        </h5>
+                        <div className="space-y-2">
+                          {taskSpareTransactions.map((tx) => {
+                            const part = spareParts.find((p) => p.id === tx.sparePartId);
+                            return (
+                              <div
+                                key={tx.id}
+                                className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg"
+                              >
+                                <div className="text-sm text-gray-800">
+                                  {part?.name || "未知备件"}
+                                  <span className="text-gray-500 ml-2">
+                                    x{tx.quantity}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {tx.date} · {tx.operator}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {taskCosts.length > 0 && (
+                      <div>
+                        <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                          <Receipt className="w-4 h-4 text-green-500" />
+                          关联费用记录
+                        </h5>
+                        <div className="space-y-2">
+                          {taskCosts.map((cost) => (
+                            <div
+                              key={cost.id}
+                              className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg"
+                            >
+                              <div>
+                                <div className="text-sm text-gray-800">
+                                  {cost.description ||
+                                    (cost.category === "maintenance"
+                                      ? "维保费用"
+                                      : cost.category === "spare_parts"
+                                      ? "备件费用"
+                                      : cost.category === "external_repair"
+                                      ? "外修费用"
+                                      : cost.category === "insurance"
+                                      ? "保险费用"
+                                      : "其他费用")}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {cost.date} · {cost.operator}
+                                </div>
+                              </div>
+                              <div className="text-sm font-medium text-gray-800">
+                                ¥{cost.amount.toLocaleString()}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {totalCost === 0 &&
+                      taskSpareTransactions.length === 0 &&
+                      taskCosts.length === 0 && (
+                        <div className="text-center py-6 text-gray-400 text-sm">
+                          暂无成本记录
+                        </div>
+                      )}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         )}
       </Modal>

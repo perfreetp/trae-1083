@@ -18,6 +18,7 @@ import {
   TrendingDown,
   AlertTriangle,
   X,
+  Link2,
 } from "lucide-react";
 import {
   BarChart,
@@ -73,6 +74,20 @@ export default function Reports() {
     amount: 0,
   });
   const [editingOverspend, setEditingOverspend] = useState<{ id: string; reason: string } | null>(null);
+  const [isAddCostModalOpen, setIsAddCostModalOpen] = useState(false);
+  const [costForm, setCostForm] = useState({
+    date: new Date().toISOString().split("T")[0],
+    category: "maintenance" as "maintenance" | "spare_parts" | "external_repair" | "insurance" | "other",
+    amount: 0,
+    description: "",
+    operator: "",
+    linkType: "none" as "none" | "device" | "ticket" | "maintenance" | "flight",
+    linkedDeviceId: "",
+    linkedTicketId: "",
+    linkedMaintenanceId: "",
+    linkedFlightId: "",
+  });
+  const addCostRecord = useStore((state) => state.addCostRecord);
 
   const totalCost = costRecords.reduce((sum, c) => sum + c.amount, 0);
   const avgMonthlyCost = Math.round(totalCost / 6);
@@ -146,6 +161,87 @@ export default function Reports() {
 
   const budgetComparison = getBudgetComparison();
 
+  const handleAddCostSubmit = () => {
+    if (!costForm.amount || costForm.amount <= 0) {
+      alert("请输入有效金额");
+      return;
+    }
+    if (!costForm.operator) {
+      alert("请填写经办人");
+      return;
+    }
+    if (costForm.linkType === "device" && !costForm.linkedDeviceId) {
+      alert("请选择关联设备");
+      return;
+    }
+    if (costForm.linkType === "ticket" && !costForm.linkedTicketId) {
+      alert("请选择关联故障工单");
+      return;
+    }
+    if (costForm.linkType === "maintenance" && !costForm.linkedMaintenanceId) {
+      alert("请选择关联维保任务");
+      return;
+    }
+    if (costForm.linkType === "flight" && !costForm.linkedFlightId) {
+      alert("请选择关联飞行记录");
+      return;
+    }
+
+    let deviceId: string | undefined = costForm.linkedDeviceId;
+    let ticketId: string | undefined;
+    let taskId: string | undefined;
+    let taskType: "maintenance" | "repair" | "flight" | undefined;
+    let taskName: string | undefined;
+
+    if (costForm.linkType === "ticket") {
+      const ticket = tickets.find((t) => t.id === costForm.linkedTicketId);
+      ticketId = costForm.linkedTicketId;
+      deviceId = ticket?.deviceId;
+      taskId = ticketId;
+      taskType = "repair";
+      taskName = ticket?.title;
+    } else if (costForm.linkType === "maintenance") {
+      const task = maintenanceTasks.find((t) => t.id === costForm.linkedMaintenanceId);
+      taskId = costForm.linkedMaintenanceId;
+      taskType = "maintenance";
+      deviceId = task?.deviceId;
+      taskName = task?.type;
+    } else if (costForm.linkType === "flight") {
+      const flight = flightRecords.find((f) => f.id === costForm.linkedFlightId);
+      taskId = costForm.linkedFlightId;
+      taskType = "flight";
+      deviceId = flight?.deviceId;
+      taskName = flight ? `${flight.missionType} - ${flight.location}` : undefined;
+    }
+
+    addCostRecord({
+      date: costForm.date,
+      category: costForm.category,
+      amount: costForm.amount,
+      description: costForm.description,
+      operator: costForm.operator,
+      deviceId,
+      ticketId,
+      taskId,
+      taskType,
+      taskName,
+    });
+
+    setIsAddCostModalOpen(false);
+    setCostForm({
+      date: new Date().toISOString().split("T")[0],
+      category: "maintenance",
+      amount: 0,
+      description: "",
+      operator: "",
+      linkType: "none",
+      linkedDeviceId: "",
+      linkedTicketId: "",
+      linkedMaintenanceId: "",
+      linkedFlightId: "",
+    });
+  };
+
   const handleExportCostRecords = () => {
     const headers = [
       { key: "date", label: "日期" },
@@ -153,24 +249,47 @@ export default function Reports() {
       { key: "amount", label: "金额" },
       { key: "deviceName", label: "关联设备" },
       { key: "taskName", label: "关联工单/任务" },
+      { key: "taskTypeLabel", label: "关联类型" },
       { key: "description", label: "说明" },
       { key: "operator", label: "经办人" },
     ];
     const exportData = costRecords.map((record) => {
       const device = devices.find((d) => d.id === record.deviceId);
       let taskName = "";
-      if (record.taskId && record.taskType === "maintenance") {
+      let taskTypeLabel = "无";
+      
+      if (record.ticketId) {
+        const ticket = tickets.find((t) => t.id === record.ticketId);
+        if (ticket) {
+          taskName = ticket.title;
+          taskTypeLabel = "故障工单";
+        }
+      } else if (record.taskId && record.taskType === "maintenance") {
         const task = maintenanceTasks.find((t) => t.id === record.taskId);
-        taskName = task?.type || "";
+        if (task) {
+          taskName = task.type;
+          taskTypeLabel = "维保任务";
+        }
       } else if (record.taskId && record.taskType === "repair") {
         const ticket = tickets.find((t) => t.id === record.taskId);
-        taskName = ticket?.title || "";
+        if (ticket) {
+          taskName = ticket.title;
+          taskTypeLabel = "故障工单";
+        }
+      } else if (record.taskId && record.taskType === "flight") {
+        const flight = flightRecords.find((f) => f.id === record.taskId);
+        if (flight) {
+          taskName = flight.missionType + " - " + flight.location;
+          taskTypeLabel = "飞行任务";
+        }
       }
+      
       return {
         ...record,
         category: COST_LABELS[record.category] || record.category,
         deviceName: device?.name || "-",
         taskName: taskName || record.taskName || "-",
+        taskTypeLabel,
       };
     });
     exportToCSV(exportData, "成本明细", headers);
@@ -239,10 +358,33 @@ export default function Reports() {
     其他: d.other,
   }));
 
-  const costByTask = costRecords.reduce((acc, record) => {
+  const costByTask: Record<string, any> = {};
+
+  flightRecords.forEach((flight) => {
+    const device = devices.find((d) => d.id === flight.deviceId);
+    const taskName = flight.missionType + " - " + flight.location;
+    const key = "flight_" + flight.id;
+    costByTask[key] = {
+      taskName,
+      taskType: "flight",
+      relatedDevice: device?.name || "未知设备",
+      flightDate: flight.date,
+      pilot: flight.pilot,
+      flightDuration: flight.duration,
+      total: 0,
+      maintenance: 0,
+      spare_parts: 0,
+      external_repair: 0,
+      insurance: 0,
+      other: 0,
+    };
+  });
+
+  costRecords.forEach((record) => {
     let taskName = "未关联任务";
     let taskType = "other";
     let relatedDevice = "-";
+    let key = "unlinked";
 
     if (record.ticketId) {
       const ticket = tickets.find((t) => t.id === record.ticketId);
@@ -251,6 +393,7 @@ export default function Reports() {
         taskType = "repair";
         const device = devices.find((d) => d.id === ticket.deviceId);
         relatedDevice = device?.name || "未知设备";
+        key = "ticket_" + ticket.id;
       }
     } else if (record.taskId && record.taskType === "maintenance") {
       const task = maintenanceTasks.find((t) => t.id === record.taskId);
@@ -259,20 +402,29 @@ export default function Reports() {
         taskType = "maintenance";
         const device = devices.find((d) => d.id === task.deviceId);
         relatedDevice = device?.name || "未知设备";
+        key = "maintenance_" + task.id;
       }
     } else if (record.taskId && record.taskType === "flight") {
+      key = "flight_" + record.taskId;
       const flight = flightRecords.find((f) => f.id === record.taskId);
       if (flight) {
-        taskName = flight.missionType + " - " + flight.location;
-        taskType = "flight";
         const device = devices.find((d) => d.id === flight.deviceId);
+        taskName = flight.missionType + " - " + flight.location;
         relatedDevice = device?.name || "未知设备";
+      }
+    } else if (record.taskId && record.taskType === "repair") {
+      const ticket = tickets.find((t) => t.id === record.taskId);
+      if (ticket) {
+        taskName = ticket.title;
+        taskType = "repair";
+        const device = devices.find((d) => d.id === ticket.deviceId);
+        relatedDevice = device?.name || "未知设备";
+        key = "ticket_" + ticket.id;
       }
     }
 
-    const key = taskName + "|" + relatedDevice;
-    if (!acc[key]) {
-      acc[key] = {
+    if (!costByTask[key]) {
+      costByTask[key] = {
         taskName,
         taskType,
         relatedDevice,
@@ -284,12 +436,10 @@ export default function Reports() {
         other: 0,
       };
     }
-    acc[key].total += record.amount;
-    (acc[key] as any)[record.category] =
-      ((acc[key] as any)[record.category] || 0) + record.amount;
-
-    return acc;
-  }, {} as Record<string, any>);
+    costByTask[key].total += record.amount;
+    (costByTask[key] as any)[record.category] =
+      ((costByTask[key] as any)[record.category] || 0) + record.amount;
+  });
 
   const costByTaskList = Object.values(costByTask).sort(
     (a, b) => b.total - a.total
@@ -379,6 +529,13 @@ export default function Reports() {
           >
             <Download className="w-5 h-5" />
             导出报表
+          </button>
+          <button
+            onClick={() => setIsAddCostModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            新增费用
           </button>
         </div>
       </div>
@@ -618,8 +775,13 @@ export default function Reports() {
               <tbody className="divide-y divide-gray-100">
                 {costByTaskList.map((item, index) => (
                   <tr key={index} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-sm text-gray-800 font-medium">
-                      {item.taskName}
+                    <td className="px-4 py-3 text-sm">
+                      <div className="text-gray-800 font-medium">{item.taskName}</div>
+                      {item.taskType === "flight" && item.flightDate && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {item.flightDate} · {item.pilot || "未知飞手"} · 飞行 {item.flightDuration || 0}h
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -1139,6 +1301,193 @@ export default function Reports() {
                 className="flex-1 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAddCostModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 sticky top-0 bg-white">
+              <h3 className="text-xl font-semibold text-gray-800">费用补录/关联</h3>
+              <button
+                onClick={() => setIsAddCostModalOpen(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    日期 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={costForm.date}
+                    onChange={(e) => setCostForm({ ...costForm, date: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    费用分类 <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={costForm.category}
+                    onChange={(e) => setCostForm({ ...costForm, category: e.target.value as any })}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="maintenance">维保费用</option>
+                    <option value="spare_parts">备件费用</option>
+                    <option value="external_repair">外修费用</option>
+                    <option value="insurance">保险费用</option>
+                    <option value="other">其他费用</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    金额 (元) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={costForm.amount || ""}
+                    onChange={(e) => setCostForm({ ...costForm, amount: Number(e.target.value) })}
+                    placeholder="请输入金额"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    经办人 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={costForm.operator}
+                    onChange={(e) => setCostForm({ ...costForm, operator: e.target.value })}
+                    placeholder="请输入经办人"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  费用说明
+                </label>
+                <textarea
+                  value={costForm.description}
+                  onChange={(e) => setCostForm({ ...costForm, description: e.target.value })}
+                  placeholder="请输入费用说明（可选）"
+                  rows={2}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                />
+              </div>
+              <div className="p-4 bg-gray-50 rounded-xl space-y-3">
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">关联对象（可选）</span>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">关联类型</label>
+                  <select
+                    value={costForm.linkType}
+                    onChange={(e) => setCostForm({ ...costForm, linkType: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="none">不关联</option>
+                    <option value="device">关联设备</option>
+                    <option value="ticket">关联故障工单</option>
+                    <option value="maintenance">关联维保任务</option>
+                    <option value="flight">关联飞行记录</option>
+                  </select>
+                </div>
+                {costForm.linkType === "device" && (
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">选择设备</label>
+                    <select
+                      value={costForm.linkedDeviceId}
+                      onChange={(e) => setCostForm({ ...costForm, linkedDeviceId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="">请选择设备</option>
+                      {devices.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} ({d.assetNumber})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {costForm.linkType === "ticket" && (
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">选择故障工单</label>
+                    <select
+                      value={costForm.linkedTicketId}
+                      onChange={(e) => setCostForm({ ...costForm, linkedTicketId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="">请选择工单</option>
+                      {tickets.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {costForm.linkType === "maintenance" && (
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">选择维保任务</label>
+                    <select
+                      value={costForm.linkedMaintenanceId}
+                      onChange={(e) => setCostForm({ ...costForm, linkedMaintenanceId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="">请选择维保任务</option>
+                      {maintenanceTasks.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.type} - {devices.find((d) => d.id === t.deviceId)?.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {costForm.linkType === "flight" && (
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">选择飞行记录</label>
+                    <select
+                      value={costForm.linkedFlightId}
+                      onChange={(e) => setCostForm({ ...costForm, linkedFlightId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="">请选择飞行记录</option>
+                      {flightRecords.slice(0, 50).map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.date} - {f.missionType} - {f.location}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 border-t border-gray-100 sticky bottom-0 bg-white">
+              <button
+                onClick={() => setIsAddCostModalOpen(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAddCostSubmit}
+                className="flex-1 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+              >
+                保存费用
               </button>
             </div>
           </div>
