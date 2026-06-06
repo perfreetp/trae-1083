@@ -18,6 +18,7 @@ import {
   Stethoscope,
   Wrench,
   Package,
+  Paperclip,
   Plus as PlusIcon,
   X,
 } from "lucide-react";
@@ -103,6 +104,7 @@ export default function Tickets() {
   const [newLogTechnician, setNewLogTechnician] = useState("");
   const [newLogSparePartId, setNewLogSparePartId] = useState("");
   const [newLogSparePartQty, setNewLogSparePartQty] = useState(1);
+  const [newLogAttachment, setNewLogAttachment] = useState("");
   const [resolutionText, setResolutionText] = useState("");
 
   const handleCreateSubmit = () => {
@@ -196,11 +198,13 @@ export default function Tickets() {
       sparePartQuantity: newLogType === "parts" ? newLogSparePartQty : undefined,
       technician: newLogTechnician,
       createdAt: new Date().toISOString(),
+      attachments: newLogAttachment ? [newLogAttachment] : undefined,
     });
     setNewLogContent("");
     setNewLogTechnician("");
     setNewLogSparePartId("");
     setNewLogSparePartQty(1);
+    setNewLogAttachment("");
   };
 
   const handleCloseTicket = () => {
@@ -909,6 +913,15 @@ export default function Tickets() {
                     rows={2}
                     className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
                   />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newLogAttachment}
+                    onChange={(e) => setNewLogAttachment(e.target.value)}
+                    placeholder="附件名称或链接（可选）"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
                   <button
                     onClick={handleAddRepairLog}
                     className="px-4 py-2 bg-primary-500 text-white rounded-lg text-sm hover:bg-primary-600 transition-colors flex items-center gap-1 whitespace-nowrap"
@@ -967,6 +980,19 @@ export default function Tickets() {
                             <p className="text-xs text-orange-600 mt-1">
                               更换备件: {part.name} x{entry.sparePartQuantity}
                             </p>
+                          )}
+                          {entry.attachments && entry.attachments.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {entry.attachments.map((att, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-center gap-1 text-xs text-blue-600"
+                                >
+                                  <Paperclip className="w-3 h-3" />
+                                  <span>{att}</span>
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       );

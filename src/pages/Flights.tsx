@@ -8,9 +8,11 @@ import {
   PlaneTakeoff,
   Battery,
   FileText,
+  Download,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import Modal from "@/components/ui/Modal";
+import { exportToCSV } from "@/utils/csv";
 import type { FlightRecord } from "@/types";
 
 const missionTypes = [
@@ -63,6 +65,27 @@ export default function Flights() {
     setFormData(emptyRecord);
   };
 
+  const handleExportFlights = () => {
+    const headers = [
+      { key: "date", label: "日期" },
+      { key: "deviceName", label: "设备名称" },
+      { key: "pilot", label: "飞手" },
+      { key: "location", label: "飞行地点" },
+      { key: "missionType", label: "任务类型" },
+      { key: "duration", label: "飞行时长(小时)" },
+      { key: "takeoffs", label: "起降次数" },
+      { key: "notes", label: "备注" },
+    ];
+    const exportData = flightRecords.map((record) => {
+      const device = devices.find((d) => d.id === record.deviceId);
+      return {
+        ...record,
+        deviceName: device?.name || "未知设备",
+      };
+    });
+    exportToCSV(exportData, "飞行记录", headers);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -81,16 +104,25 @@ export default function Flights() {
             </select>
           </div>
         </div>
-        <button
-          onClick={() => {
-            setFormData(emptyRecord);
-            setIsAddModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
-        >
-          <Plus className="w-5 h-5" />
-          新增飞行记录
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleExportFlights}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <Download className="w-5 h-5" />
+            导出
+          </button>
+          <button
+            onClick={() => {
+              setFormData(emptyRecord);
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            新增飞行记录
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

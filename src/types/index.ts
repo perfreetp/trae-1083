@@ -126,6 +126,7 @@ export interface SparePart {
   unit: string;
   unitPrice: number;
   location?: string;
+  supplier?: string;
 }
 
 export interface SparePartUsage {
@@ -211,6 +212,7 @@ export interface Budget {
   category: "maintenance" | "spare_parts" | "external_repair" | "insurance" | "other" | "all";
   amount: number;
   createdAt: string;
+  overspendReason?: string;
 }
 
 export interface InventoryTransaction {

@@ -13,9 +13,13 @@ import {
   FileText,
   CheckCircle,
   Link2,
+  Download,
+  Upload,
 } from "lucide-react";
 import Modal from "@/components/ui/Modal";
+import ImportModal from "@/components/ImportModal";
 import { useStore } from "@/store/useStore";
+import { exportToCSV } from "@/utils/csv";
 import type { SparePart } from "@/types";
 
 const emptyPart: Omit<SparePart, "id"> = {
@@ -27,6 +31,7 @@ const emptyPart: Omit<SparePart, "id"> = {
   unit: "个",
   unitPrice: 0,
   location: "",
+  supplier: "",
 };
 
 export default function Inventory() {
@@ -41,6 +46,7 @@ export default function Inventory() {
   } = useStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const [isInModalOpen, setIsInModalOpen] = useState(false);
   const [isOutModalOpen, setIsOutModalOpen] = useState(false);
@@ -57,6 +63,37 @@ export default function Inventory() {
     linkedMaintenanceId: "",
   });
   const [partForm, setPartForm] = useState<Omit<SparePart, "id">>(emptyPart);
+
+  const handleExportSpareParts = () => {
+    const headers = [
+      { key: "name", label: "备件名称" },
+      { key: "category", label: "分类" },
+      { key: "sku", label: "SKU编码" },
+      { key: "stock", label: "当前库存" },
+      { key: "safetyStock", label: "安全库存" },
+      { key: "unit", label: "单位" },
+      { key: "unitPrice", label: "单价" },
+      { key: "location", label: "库位" },
+      { key: "supplier", label: "供应商" },
+    ];
+    exportToCSV(spareParts, "备件库存", headers);
+  };
+
+  const handleImportSpareParts = (data: Record<string, any>[]) => {
+    data.forEach((row) => {
+      addSparePart({
+        name: row["备件名称"] || row.name || "",
+        category: row["分类"] || row.category || "其他",
+        sku: row["SKU编码"] || row.sku || "",
+        stock: Number(row["当前库存"] || row.stock || 0),
+        safetyStock: Number(row["安全库存"] || row.safetyStock || 5),
+        unit: row["单位"] || row.unit || "个",
+        unitPrice: Number(row["单价"] || row.unitPrice || 0),
+        location: row["库位"] || row.location || "",
+        supplier: row["供应商"] || row.supplier || "",
+      });
+    });
+  };
 
   const categories = [...new Set(spareParts.map((sp) => sp.category))];
 
@@ -111,6 +148,18 @@ export default function Inventory() {
     }
     if (selectedPart.stock < stockForm.quantity) {
       alert("库存不足，无法出库");
+      return;
+    }
+    if (stockForm.linkType === "device" && !stockForm.linkedDeviceId) {
+      alert("请选择关联的设备");
+      return;
+    }
+    if (stockForm.linkType === "ticket" && !stockForm.linkedTicketId) {
+      alert("请选择关联的故障工单");
+      return;
+    }
+    if (stockForm.linkType === "maintenance" && !stockForm.linkedMaintenanceId) {
+      alert("请选择关联的维保任务");
       return;
     }
     const deviceId = stockForm.linkType === "device" ? stockForm.linkedDeviceId :
@@ -197,16 +246,32 @@ export default function Inventory() {
             <History className="w-5 h-5" />
             出入库记录
           </button>
-          <button
-            onClick={() => {
-              setPartForm(emptyPart);
-              setIsAddPartModalOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
-          >
-            <Plus className="w-5 h-5" />
-            新增备件
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportSpareParts}
+              className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            >
+              <Download className="w-5 h-5" />
+              导出
+            </button>
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            >
+              <Upload className="w-5 h-5" />
+              导入
+            </button>
+            <button
+              onClick={() => {
+                setPartForm(emptyPart);
+                setIsAddPartModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              新增备件
+            </button>
+          </div>
         </div>
       </div>
 
@@ -899,6 +964,28 @@ export default function Inventory() {
           </button>
         </div>
       </Modal>
+
+      <ImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        title="批量导入备件"
+        keyField="SKU编码"
+        keyFieldLabel="SKU编码"
+        existingItems={spareParts}
+        existingKeyField="sku"
+        sampleHeaders={[
+          "备件名称",
+          "分类",
+          "SKU编码",
+          "当前库存",
+          "安全库存",
+          "单位",
+          "单价",
+          "库位",
+          "供应商",
+        ]}
+        onImport={handleImportSpareParts}
+      />
     </div>
   );
 }

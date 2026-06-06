@@ -13,10 +13,12 @@ import {
   Settings,
   RefreshCw,
   Save,
+  Download,
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Modal from "@/components/ui/Modal";
 import { useStore } from "@/store/useStore";
+import { exportToCSV } from "@/utils/csv";
 import type { MaintenanceStatus, MaintenanceTask } from "@/types";
 
 const maintenanceTypes = [
@@ -91,6 +93,36 @@ export default function Maintenance() {
   const overdueCount = maintenanceTasks.filter(
     (t) => t.status === "overdue"
   ).length;
+
+  const STATUS_LABELS: Record<MaintenanceStatus, string> = {
+    pending: "待处理",
+    in_progress: "处理中",
+    completed: "已完成",
+    overdue: "已逾期",
+  };
+
+  const handleExportMaintenance = () => {
+    const headers = [
+      { key: "type", label: "维保类型" },
+      { key: "deviceName", label: "关联设备" },
+      { key: "status", label: "状态" },
+      { key: "dueDate", label: "截止日期" },
+      { key: "completedDate", label: "完成日期" },
+      { key: "assignee", label: "负责人" },
+      { key: "cost", label: "费用" },
+      { key: "description", label: "描述" },
+      { key: "notes", label: "备注" },
+    ];
+    const exportData = maintenanceTasks.map((task) => {
+      const device = devices.find((d) => d.id === task.deviceId);
+      return {
+        ...task,
+        deviceName: device?.name || "未知设备",
+        status: STATUS_LABELS[task.status] || task.status,
+      };
+    });
+    exportToCSV(exportData, "维保计划", headers);
+  };
 
   const handleAddSubmit = () => {
     if (!formData.deviceId || !formData.type || !formData.dueDate) {
@@ -199,16 +231,25 @@ export default function Maintenance() {
             <Settings className="w-5 h-5" />
             周期规则
           </button>
-          <button
-            onClick={() => {
-              setFormData(emptyTask);
-              setIsAddModalOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
-          >
-            <Plus className="w-5 h-5" />
-            新增维保计划
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportMaintenance}
+              className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            >
+              <Download className="w-5 h-5" />
+              导出
+            </button>
+            <button
+              onClick={() => {
+                setFormData(emptyTask);
+                setIsAddModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              新增维保计划
+            </button>
+          </div>
         </div>
       </div>
 

@@ -33,6 +33,7 @@ import {
   Legend,
 } from "recharts";
 import { useStore } from "@/store/useStore";
+import { exportToCSV } from "@/utils/csv";
 
 const COST_COLORS = {
   maintenance: "#3b82f6",
@@ -63,6 +64,7 @@ export default function Reports() {
   const [timeRange, setTimeRange] = useState("year");
   const [viewMode, setViewMode] = useState<"device" | "category" | "task" | "budget">("device");
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [budgetFilterCategory, setBudgetFilterCategory] = useState<"all" | "maintenance" | "spare_parts" | "external_repair" | "insurance">("all");
   const [budgetForm, setBudgetForm] = useState({
     type: "monthly" as "monthly" | "device",
     period: new Date().toISOString().slice(0, 7),
@@ -70,6 +72,7 @@ export default function Reports() {
     category: "all" as "maintenance" | "spare_parts" | "external_repair" | "insurance" | "other" | "all",
     amount: 0,
   });
+  const [editingOverspend, setEditingOverspend] = useState<{ id: string; reason: string } | null>(null);
 
   const totalCost = costRecords.reduce((sum, c) => sum + c.amount, 0);
   const avgMonthlyCost = Math.round(totalCost / 6);
@@ -98,34 +101,80 @@ export default function Reports() {
 
   const getBudgetComparison = () => {
     const currentMonth = new Date().toISOString().slice(0, 7);
-    const monthlyBudgets = budgets.filter((b) => b.type === "monthly");
+    const filteredBudgets = budgets.filter((b) => 
+      budgetFilterCategory === "all" || b.category === budgetFilterCategory || b.category === "all"
+    );
     
-    return monthlyBudgets.map((budget) => {
-      const monthRecords = costRecords.filter((c) => {
-        const recordMonth = c.date.slice(0, 7);
-        const matchesMonth = budget.period ? recordMonth === budget.period : recordMonth === currentMonth;
-        const matchesCategory = budget.category === "all" || c.category === budget.category;
-        return matchesMonth && matchesCategory;
-      });
+    return filteredBudgets.map((budget) => {
+      let actual = 0;
+      if (budget.type === "monthly") {
+        const monthRecords = costRecords.filter((c) => {
+          const recordMonth = c.date.slice(0, 7);
+          const matchesMonth = budget.period ? recordMonth === budget.period : recordMonth === currentMonth;
+          const matchesCategory = budget.category === "all" || c.category === budget.category;
+          return matchesMonth && matchesCategory;
+        });
+        actual = monthRecords.reduce((sum, c) => sum + c.amount, 0);
+      } else if (budget.type === "device" && budget.deviceId) {
+        const deviceRecords = costRecords.filter((c) => {
+          const matchesDevice = c.deviceId === budget.deviceId;
+          const matchesCategory = budget.category === "all" || c.category === budget.category;
+          return matchesDevice && matchesCategory;
+        });
+        actual = deviceRecords.reduce((sum, c) => sum + c.amount, 0);
+      }
       
-      const actual = monthRecords.reduce((sum, c) => sum + c.amount, 0);
       const difference = actual - budget.amount;
       const percentage = budget.amount > 0 ? Math.round((actual / budget.amount) * 100) : 0;
+      const device = budget.deviceId ? devices.find((d) => d.id === budget.deviceId) : null;
       
       return {
         id: budget.id,
+        type: budget.type,
         period: budget.period || currentMonth,
+        deviceName: device?.name || "",
         category: budget.category,
         budget: budget.amount,
         actual,
         difference,
         percentage,
         isOver: actual > budget.amount,
+        overspendReason: budget.overspendReason,
       };
     });
   };
 
   const budgetComparison = getBudgetComparison();
+
+  const handleExportCostRecords = () => {
+    const headers = [
+      { key: "date", label: "日期" },
+      { key: "category", label: "费用分类" },
+      { key: "amount", label: "金额" },
+      { key: "deviceName", label: "关联设备" },
+      { key: "taskName", label: "关联工单/任务" },
+      { key: "description", label: "说明" },
+      { key: "operator", label: "经办人" },
+    ];
+    const exportData = costRecords.map((record) => {
+      const device = devices.find((d) => d.id === record.deviceId);
+      let taskName = "";
+      if (record.taskId && record.taskType === "maintenance") {
+        const task = maintenanceTasks.find((t) => t.id === record.taskId);
+        taskName = task?.type || "";
+      } else if (record.taskId && record.taskType === "repair") {
+        const ticket = tickets.find((t) => t.id === record.taskId);
+        taskName = ticket?.title || "";
+      }
+      return {
+        ...record,
+        category: COST_LABELS[record.category] || record.category,
+        deviceName: device?.name || "-",
+        taskName: taskName || record.taskName || "-",
+      };
+    });
+    exportToCSV(exportData, "成本明细", headers);
+  };
 
   const costByCategory = Object.entries(
     costRecords.reduce((acc, record) => {
@@ -209,6 +258,14 @@ export default function Reports() {
         taskName = task.type;
         taskType = "maintenance";
         const device = devices.find((d) => d.id === task.deviceId);
+        relatedDevice = device?.name || "未知设备";
+      }
+    } else if (record.taskId && record.taskType === "flight") {
+      const flight = flightRecords.find((f) => f.id === record.taskId);
+      if (flight) {
+        taskName = flight.missionType + " - " + flight.location;
+        taskType = "flight";
+        const device = devices.find((d) => d.id === flight.deviceId);
         relatedDevice = device?.name || "未知设备";
       }
     }
@@ -316,7 +373,10 @@ export default function Reports() {
             <Settings className="w-5 h-5" />
             设置预算
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
+          <button
+            onClick={handleExportCostRecords}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
             <Download className="w-5 h-5" />
             导出报表
           </button>
@@ -545,6 +605,9 @@ export default function Reports() {
                     外修费用
                   </th>
                   <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    保险费用
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
                     总计
                   </th>
                   <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
@@ -585,6 +648,9 @@ export default function Reports() {
                     <td className="px-4 py-3 text-right text-sm text-gray-700">
                       ¥{item.external_repair.toLocaleString()}
                     </td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-700">
+                      ¥{item.insurance.toLocaleString()}
+                    </td>
                     <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">
                       ¥{item.total.toLocaleString()}
                     </td>
@@ -598,7 +664,7 @@ export default function Reports() {
                 ))}
                 {costByTaskList.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                       暂无任务相关的费用数据
                     </td>
                   </tr>
@@ -608,6 +674,22 @@ export default function Reports() {
           </div>
         ) : viewMode === "budget" ? (
           <div className="space-y-6">
+            <div className="flex flex-wrap gap-3">
+              <span className="text-sm text-gray-600 flex items-center">分类筛选：</span>
+              {(["all", "maintenance", "spare_parts", "external_repair", "insurance"] as const).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setBudgetFilterCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    budgetFilterCategory === cat
+                      ? "bg-primary-500 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {cat === "all" ? "全部" : COST_LABELS[cat]}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -643,7 +725,7 @@ export default function Reports() {
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
                     <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
-                      周期
+                      周期/设备
                     </th>
                     <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
                       费用类别
@@ -660,6 +742,9 @@ export default function Reports() {
                     <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
                       执行率
                     </th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                      超支原因
+                    </th>
                     <th className="text-center px-4 py-3 text-sm font-semibold text-gray-600">
                       状态
                     </th>
@@ -672,7 +757,10 @@ export default function Reports() {
                   {budgetComparison.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 text-sm text-gray-800">
-                        {item.period}
+                        <div>{item.type === "device" ? item.deviceName : item.period}</div>
+                        <div className="text-xs text-gray-400">
+                          {item.type === "device" ? "设备预算" : "月度预算"}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {COST_LABELS[item.category] || "全部"}
@@ -701,6 +789,48 @@ export default function Reports() {
                           <span>{item.percentage}%</span>
                         </div>
                       </td>
+                      <td className="px-4 py-3 text-sm">
+                        {item.isOver ? (
+                          editingOverspend?.id === item.id ? (
+                            <div className="flex gap-1">
+                              <input
+                                type="text"
+                                value={editingOverspend.reason}
+                                onChange={(e) =>
+                                  setEditingOverspend({ ...editingOverspend, reason: e.target.value })
+                                }
+                                className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm"
+                                placeholder="填写超支原因"
+                              />
+                              <button
+                                onClick={() => {
+                                  useStore.getState().updateBudget(item.id, {
+                                    overspendReason: editingOverspend.reason,
+                                  });
+                                  setEditingOverspend(null);
+                                }}
+                                className="px-2 py-1 bg-primary-500 text-white rounded text-xs"
+                              >
+                                保存
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                setEditingOverspend({
+                                  id: item.id,
+                                  reason: item.overspendReason || "",
+                                })
+                              }
+                              className="text-blue-500 hover:text-blue-700 text-xs"
+                            >
+                              {item.overspendReason || "点击填写原因"}
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                           item.isOver
@@ -724,7 +854,7 @@ export default function Reports() {
                   ))}
                   {budgetComparison.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                      <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                         暂无预算数据，点击右上角"设置预算"添加
                       </td>
                     </tr>
