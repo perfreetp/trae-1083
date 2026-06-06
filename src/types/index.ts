@@ -151,3 +151,33 @@ export interface Depreciation {
   calculatedDate: string;
   accumulatedDepreciation: number;
 }
+
+export type InventoryItemStatus = "normal" | "missing" | "damaged";
+
+export interface StockTakeItem {
+  deviceId: string;
+  status: InventoryItemStatus;
+  notes?: string;
+}
+
+export interface StockTake {
+  id: string;
+  title: string;
+  createdBy: string;
+  createdAt: string;
+  completedAt?: string;
+  status: "in_progress" | "completed";
+  items: StockTakeItem[];
+  notes?: string;
+}
+
+export interface InventoryTransaction {
+  id: string;
+  sparePartId: string;
+  type: "in" | "out";
+  quantity: number;
+  date: string;
+  operator: string;
+  notes?: string;
+  reference?: string;
+}

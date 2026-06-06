@@ -11,6 +11,7 @@ const pageTitles: Record<string, string> = {
   "/tickets": "故障工单",
   "/inventory": "备件库存",
   "/reports": "成本报表",
+  "/stocktake": "资产盘点",
 };
 
 export default function Layout() {

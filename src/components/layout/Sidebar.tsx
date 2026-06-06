@@ -9,6 +9,7 @@ import {
   Package,
   BarChart3,
   Plane,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ const menuItems = [
   { path: "/tickets", icon: Ticket, label: "故障工单" },
   { path: "/inventory", icon: Package, label: "备件库存" },
   { path: "/reports", icon: BarChart3, label: "成本报表" },
+  { path: "/stocktake", icon: ClipboardList, label: "资产盘点" },
 ];
 
 export default function Sidebar() {

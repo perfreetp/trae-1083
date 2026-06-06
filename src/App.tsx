@@ -8,6 +8,7 @@ import Maintenance from "@/pages/Maintenance";
 import Tickets from "@/pages/Tickets";
 import Inventory from "@/pages/Inventory";
 import Reports from "@/pages/Reports";
+import StockTake from "@/pages/StockTake";
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="tickets" element={<Tickets />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="stocktake" element={<StockTake />} />
         </Route>
       </Routes>
     </Router>

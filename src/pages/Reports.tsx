@@ -8,6 +8,9 @@ import {
   FileText,
   Download,
   Filter,
+  Layers,
+  Cpu,
+  Target,
 } from "lucide-react";
 import {
   BarChart,
@@ -45,6 +48,7 @@ export default function Reports() {
   const devices = useStore((state) => state.devices);
   const depreciations = useStore((state) => state.depreciations);
   const [timeRange, setTimeRange] = useState("year");
+  const [viewMode, setViewMode] = useState<"device" | "category">("device");
 
   const totalCost = costRecords.reduce((sum, c) => sum + c.amount, 0);
   const avgMonthlyCost = Math.round(totalCost / 6);
@@ -59,6 +63,27 @@ export default function Reports() {
     value,
     color: COST_COLORS[category as keyof typeof COST_COLORS] || "#6b7280",
   }));
+
+  const costByDevice = devices.map((device) => {
+    const deviceCosts = costRecords.filter((c) => c.deviceId === device.id);
+    const total = deviceCosts.reduce((sum, c) => sum + c.amount, 0);
+    const byCategory = deviceCosts.reduce((acc, c) => {
+      acc[c.category] = (acc[c.category] || 0) + c.amount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      id: device.id,
+      name: device.name,
+      assetNumber: device.assetNumber,
+      total,
+      maintenance: byCategory.maintenance || 0,
+      spare_parts: byCategory.spare_parts || 0,
+      external_repair: byCategory.external_repair || 0,
+      insurance: byCategory.insurance || 0,
+      other: byCategory.other || 0,
+    };
+  }).filter((d) => d.total > 0);
 
   const monthlyCostData = [
     { month: "1月", cost: 11400 },
@@ -76,8 +101,20 @@ export default function Reports() {
       原值: device?.purchasePrice || 0,
       净值: dep.currentValue,
       累计折旧: dep.accumulatedDepreciation,
+      deviceId: dep.deviceId,
+      depreciationRate: dep.depreciationRate,
+      calculatedDate: dep.calculatedDate,
     };
   });
+
+  const deviceCostChartData = costByDevice.map((d) => ({
+    name: d.assetNumber,
+    维保: d.maintenance,
+    备件: d.spare_parts,
+    外修: d.external_repair,
+    保险: d.insurance,
+    其他: d.other,
+  }));
 
   return (
     <div className="space-y-6">
@@ -94,6 +131,30 @@ export default function Reports() {
               <option value="quarter">本季度</option>
               <option value="year">本年</option>
             </select>
+          </div>
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode("device")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                viewMode === "device"
+                  ? "bg-primary-500 text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Cpu className="w-4 h-4" />
+              按设备
+            </button>
+            <button
+              onClick={() => setViewMode("category")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                viewMode === "category"
+                  ? "bg-primary-500 text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              按分类
+            </button>
           </div>
         </div>
         <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
@@ -211,6 +272,153 @@ export default function Reports() {
         </div>
       </div>
 
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+        <div className="flex items-center gap-2 mb-4">
+          <Target className="w-5 h-5 text-primary-600" />
+          <h3 className="text-lg font-semibold text-gray-800">成本分摊分析</h3>
+        </div>
+        {viewMode === "device" ? (
+          <>
+            <div className="h-80 mb-6">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={deviceCostChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip formatter={(value) => [`¥${value}`, ""]} />
+                  <Legend />
+                  <Bar dataKey="维保" name="维保费用" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="备件" name="备件费用" fill="#10b981" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="外修" name="外修费用" fill="#f97316" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="保险" name="保险费用" fill="#8b5cf6" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="其他" name="其他费用" fill="#6b7280" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                      设备编号
+                    </th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                      设备名称
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      维保费用
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      备件费用
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      外修费用
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      保险费用
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      总计
+                    </th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                      占比
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {costByDevice.map((item) => (
+                    <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 text-sm text-gray-700 font-mono">
+                        {item.assetNumber}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-800 font-medium">
+                        {item.name}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-700">
+                        ¥{item.maintenance.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-700">
+                        ¥{item.spare_parts.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-700">
+                        ¥{item.external_repair.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-700">
+                        ¥{item.insurance.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">
+                        ¥{item.total.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-600">
+                        {totalCost > 0
+                          ? ((item.total / totalCost) * 100).toFixed(1)
+                          : 0}
+                        %
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                    费用分类
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    金额
+                  </th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold text-gray-600">
+                    占比
+                  </th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-600">
+                    记录数
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {costByCategory.map((item) => {
+                  const count = costRecords.filter(
+                    (c) => COST_LABELS[c.category] === item.name
+                  ).length;
+                  return (
+                    <tr key={item.name} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className="text-sm font-medium text-gray-800">
+                            {item.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">
+                        ¥{item.value.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-600">
+                        {totalCost > 0
+                          ? ((item.value / totalCost) * 100).toFixed(1)
+                          : 0}
+                        %
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {count} 条
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="font-semibold text-gray-800">资产折旧明细</h3>
@@ -263,10 +471,10 @@ export default function Reports() {
                       ¥{item.净值.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
-                      {dep?.depreciationRate || 0}%/年
+                      {item.depreciationRate || 0}%/年
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {dep?.calculatedDate || "-"}
+                      {item.calculatedDate || "-"}
                     </td>
                   </tr>
                 );
@@ -281,7 +489,7 @@ export default function Reports() {
           <h3 className="font-semibold text-gray-800">最近费用记录</h3>
         </div>
         <div className="divide-y divide-gray-100">
-          {costRecords.slice(0, 5).map((record) => (
+          {costRecords.slice(0, 10).map((record) => (
             <div
               key={record.id}
               className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
@@ -308,6 +516,12 @@ export default function Reports() {
                       <Calendar className="w-3 h-3" />
                       {record.date}
                     </span>
+                    {record.deviceId && (
+                      <span className="flex items-center gap-1">
+                        <Cpu className="w-3 h-3" />
+                        {devices.find((d) => d.id === record.deviceId)?.name || "未知设备"}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
